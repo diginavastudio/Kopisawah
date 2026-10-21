@@ -73,6 +73,83 @@ def db():
         conn.close()
 
 
+VARIAN_SEED = [
+    ("suhu", "Suhu", 1, 1, [("Es", 0), ("Panas", 0)]),
+    ("gula", "Level Gula", 1, 1, [("Normal", 0), ("Less Sugar", 0), ("No Sugar", 0)]),
+    ("es", "Level Es", 1, 1, [("Normal", 0), ("Sedikit", 0), ("Tanpa Es", 0)]),
+    ("ukuran", "Ukuran", 1, 1, [("Regular", 0), ("Large", 5000)]),
+    ("shot", "Extra Shot", 0, 1, [("Tanpa Extra Shot", 0), ("Extra Shot", 5000)]),
+    ("susu", "Jenis Susu", 1, 1, [("Susu UHT", 0), ("Oat Milk", 5000)]),
+    ("sambal", "Sambal Tambahan", 0, 2, [("Sambal Bawang", 4000), ("Sambal Terasi", 4000)]),
+]
+VARIAN_KATEGORI = {
+    "Kopi": ["suhu", "gula", "es", "ukuran", "shot", "susu"],
+    "Minuman": ["suhu", "gula", "es", "ukuran"],
+    "Wedangan": ["suhu", "gula"],
+    "Makanan": ["sambal"],
+    "Lauk": ["sambal"],
+    "Paket": ["sambal"],
+    "Camilan": ["sambal"],
+}
+
+
+def seed_modifiers(c):
+    if c.execute("SELECT COUNT(*) FROM modifier_groups").fetchone()[0]:
+        return
+    for order, (gid, gname, lo, hi, options) in enumerate(VARIAN_SEED):
+        c.execute("INSERT INTO modifier_groups(id,name,min_select,max_select,sort,active) VALUES(?,?,?,?,?,1)",
+                  (gid, gname, lo, hi, order))
+        for i, (name, delta) in enumerate(options):
+            c.execute("INSERT INTO modifiers(id,group_id,name,price_delta,sort,active) VALUES(?,?,?,?,?,1)",
+                      (f"{gid}-{i+1}", gid, name, delta, i))
+    for category, groups in VARIAN_KATEGORI.items():
+        for i, gid in enumerate(groups):
+            c.execute("INSERT OR IGNORE INTO category_modifier_groups(category,group_id,sort) VALUES(?,?,?)",
+                      (category, gid, i))
+
+
+def variant_groups_for(c, category):
+    rows = c.execute("""SELECT g.* FROM category_modifier_groups cm
+                        JOIN modifier_groups g ON g.id=cm.group_id
+                        WHERE cm.category=? AND g.active=1 ORDER BY cm.sort,g.sort""", (category,)).fetchall()
+    return [row_dict(r) for r in rows]
+
+
+def variant_options(c, group_id):
+    rows = c.execute("SELECT * FROM modifiers WHERE group_id=? AND active=1 ORDER BY sort,id", (group_id,)).fetchall()
+    return [row_dict(r) for r in rows]
+
+
+def resolve_item_variants(c, product, chosen):
+    """Validasi pilihan varian sebuah item; kembalikan (delta, ringkasan, [, baris])."""
+    groups = variant_groups_for(c, product["category"])
+    allowed = {g["id"]: g for g in groups}
+    picked = {}
+    for raw in chosen or []:
+        oid = str(raw.get("id") if isinstance(raw, dict) else raw)
+        row = c.execute("""SELECT m.id,m.group_id,m.name,m.price_delta FROM modifiers m
+                           JOIN modifier_groups g ON g.id=m.group_id
+                           WHERE m.id=? AND m.active=1 AND g.active=1""", (oid,)).fetchone()
+        if not row:
+            raise ValueError("Pilihan varian tidak dikenal.")
+        if row["group_id"] not in allowed:
+            raise ValueError(f"Varian {row['name']} tidak tersedia untuk {product['name']}.")
+        picked.setdefault(row["group_id"], []).append(row_dict(row))
+    delta = 0
+    lines = []
+    for gid, g in allowed.items():
+        items = picked.get(gid, [])
+        if len(items) < g["min_select"]:
+            raise ValueError(f"Pilih {g['name']} untuk {product['name']}.")
+        if len(items) > g["max_select"]:
+            raise ValueError(f"{g['name']} maksimal {g['max_select']} pilihan.")
+        for it in items:
+            delta += it["price_delta"]
+            lines.append({"group_name": g["name"], "modifier_name": it["name"], "price_delta": it["price_delta"]})
+    summary = ", ".join(f"{l['modifier_name']}" + (f" (+{l['price_delta']//1000}rb)" if l["price_delta"] else "") for l in lines)
+    return delta, summary, lines
+
+
 def init_db():
     with db() as c:
         c.executescript("""
@@ -116,6 +193,35 @@ def init_db():
             note TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS modifier_groups (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            min_select INTEGER NOT NULL DEFAULT 0 CHECK(min_select >= 0),
+            max_select INTEGER NOT NULL DEFAULT 1 CHECK(max_select >= 1),
+            sort INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS modifiers (
+            id TEXT PRIMARY KEY,
+            group_id TEXT NOT NULL REFERENCES modifier_groups(id),
+            name TEXT NOT NULL,
+            price_delta INTEGER NOT NULL DEFAULT 0 CHECK(price_delta >= 0),
+            sort INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS category_modifier_groups (
+            category TEXT NOT NULL,
+            group_id TEXT NOT NULL REFERENCES modifier_groups(id),
+            sort INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (category, group_id)
+        );
+        CREATE TABLE IF NOT EXISTS sale_item_modifiers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_item_id INTEGER NOT NULL REFERENCES sale_items(id),
+            group_name TEXT NOT NULL,
+            modifier_name TEXT NOT NULL,
+            price_delta INTEGER NOT NULL DEFAULT 0
+        );
         CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at);
         CREATE INDEX IF NOT EXISTS idx_movements_product_time ON stock_movements(product_id, created_at);
         """)
@@ -125,11 +231,15 @@ def init_db():
         if "request_id" not in sales_cols:
             c.execute("ALTER TABLE sales ADD COLUMN request_id TEXT")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_request ON sales(request_id) WHERE request_id IS NOT NULL")
+        item_cols = {r["name"] for r in c.execute("PRAGMA table_info(sale_items)")}
+        if "modifiers_summary" not in item_cols:
+            c.execute("ALTER TABLE sale_items ADD COLUMN modifiers_summary TEXT NOT NULL DEFAULT ''")
         product_cols = {r["name"] for r in c.execute("PRAGMA table_info(products)")}
         if "stock_tracked" not in product_cols:
             c.execute("ALTER TABLE products ADD COLUMN stock_tracked INTEGER NOT NULL DEFAULT 0")
         for stale in c.execute("SELECT id, created_at FROM sales WHERE business_date=''").fetchall():
             c.execute("UPDATE sales SET business_date=? WHERE id=?", (business_date(stale["created_at"]), stale["id"]))
+        seed_modifiers(c)
         count = c.execute("SELECT COUNT(*) FROM products").fetchone()[0]
         if count == 0 and CATALOG.exists():
             rows = json.loads(CATALOG.read_text(encoding="utf-8"))
@@ -232,6 +342,18 @@ class Handler(BaseHTTPRequestHandler):
                 with db() as c:
                     rows = [row_dict(r) for r in c.execute(sql, args).fetchall()]
                 return self.send_json(200, {"items": rows})
+            if path == "/api/modifiers":
+                with db() as c:
+                    groups = [row_dict(r) for r in c.execute(
+                        "SELECT * FROM modifier_groups WHERE active=1 ORDER BY sort,name").fetchall()]
+                    for g in groups:
+                        g["options"] = variant_options(c, g["id"])
+                    assignments = {}
+                    for r in c.execute("SELECT category,group_id FROM category_modifier_groups ORDER BY sort,rowid"):
+                        assignments.setdefault(r["category"], []).append(r["group_id"])
+                    cats = [r[0] for r in c.execute(
+                        "SELECT DISTINCT category FROM products WHERE active=1 ORDER BY category")]
+                return self.send_json(200, {"groups": groups, "categories": assignments, "product_categories": cats})
             if path == "/api/stock":
                 with db() as c:
                     rows = [row_dict(r) for r in c.execute("""SELECT id,name,category,variant,stock_on_hand,
@@ -244,6 +366,10 @@ class Handler(BaseHTTPRequestHandler):
                     for s in sales:
                         d = row_dict(s)
                         d["items"] = [row_dict(r) for r in c.execute("SELECT * FROM sale_items WHERE sale_id=? ORDER BY id", (s["id"],)).fetchall()]
+                        for it in d["items"]:
+                            it["modifiers"] = [row_dict(m) for m in c.execute(
+                                "SELECT group_name,modifier_name,price_delta FROM sale_item_modifiers WHERE sale_item_id=? ORDER BY id",
+                                (it["id"],)).fetchall()]
                         result.append(d)
                 return self.send_json(200, {"items": result})
             if path == "/api/reports/summary":
@@ -290,6 +416,37 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             data = self.body_json()
+            if path == "/api/modifiers/groups":
+                name = str(data.get("name", "")).strip()[:60]
+                if not name:
+                    return self.send_json(400, {"error": "Nama kelompok varian tidak boleh kosong."})
+                lo = to_int(data.get("min_select", 0), "Wajib pilih minimal", 0)
+                hi = to_int(data.get("max_select", 1), "Maksimal pilih", 1)
+                if lo > hi:
+                    return self.send_json(400, {"error": "Minimal pilih tidak boleh lebih besar dari maksimal."})
+                gid = "g-" + uuid.uuid4().hex[:8]
+                with db() as c:
+                    order = c.execute("SELECT COALESCE(MAX(sort),0)+1 FROM modifier_groups").fetchone()[0]
+                    c.execute("INSERT INTO modifier_groups(id,name,min_select,max_select,sort,active) VALUES(?,?,?,?,?,1)",
+                              (gid, name, lo, hi, order))
+                    g = row_dict(c.execute("SELECT * FROM modifier_groups WHERE id=?", (gid,)).fetchone())
+                    g["options"] = []
+                return self.send_json(201, {"item": g})
+            if path == "/api/modifiers/options":
+                gid = str(data.get("group_id", "")).strip()
+                name = str(data.get("name", "")).strip()[:60]
+                delta = to_int(data.get("price_delta", 0), "Tambahan harga", 0)
+                if not name:
+                    return self.send_json(400, {"error": "Nama pilihan tidak boleh kosong."})
+                with db() as c:
+                    if not c.execute("SELECT 1 FROM modifier_groups WHERE id=? AND active=1", (gid,)).fetchone():
+                        return self.send_json(404, {"error": "Kelompok varian tidak ditemukan."})
+                    order = c.execute("SELECT COALESCE(MAX(sort),0)+1 FROM modifiers WHERE group_id=?", (gid,)).fetchone()[0]
+                    oid = "o-" + uuid.uuid4().hex[:8]
+                    c.execute("INSERT INTO modifiers(id,group_id,name,price_delta,sort,active) VALUES(?,?,?,?,?,1)",
+                              (oid, gid, name, delta, order))
+                    item = row_dict(c.execute("SELECT * FROM modifiers WHERE id=?", (oid,)).fetchone())
+                return self.send_json(201, {"item": item})
             if path == "/api/products":
                 name = str(data.get("name", "")).strip()
                 category = str(data.get("category", "Lainnya")).strip()
@@ -344,17 +501,21 @@ class Handler(BaseHTTPRequestHandler):
                             replay["items"] = [row_dict(r) for r in c.execute(
                                 "SELECT * FROM sale_items WHERE sale_id=? ORDER BY id", (dup["id"],)).fetchall()]
                             return self.send_json(200, {"item": replay, "duplicate": True})
-                quantities = {}
+                lines = {}
                 for entry in items:
                     pid = str(entry.get("product_id", ""))
                     qty = to_int(entry.get("quantity"), "Jumlah", 1)
-                    quantities[pid] = quantities.get(pid, 0) + qty
+                    chosen = entry.get("modifiers") or []
+                    if not isinstance(chosen, list):
+                        raise ValueError("Format varian tidak valid.")
+                    ids = tuple(sorted(str(m.get("id") if isinstance(m, dict) else m) for m in chosen))
+                    lines[(pid, ids)] = lines.get((pid, ids), 0) + qty
                 sale_id = "KS-" + uuid.uuid4().hex[:10].upper()
                 with db() as c:
                     c.execute("BEGIN IMMEDIATE")
                     prepared = []
                     total = 0
-                    for pid, qty in quantities.items():
+                    for (pid, opt_ids), qty in lines.items():
                         p = c.execute("SELECT * FROM products WHERE id=? AND active=1", (pid,)).fetchone()
                         if not p:
                             return self.send_json(404, {"error": f"Menu {pid} tidak ditemukan."})
@@ -367,15 +528,20 @@ class Handler(BaseHTTPRequestHandler):
                             return self.send_json(409, {"error": f"Stok {p['name']} tidak cukup."})
                         if not tracked and REQUIRE_STOCK:
                             return self.send_json(409, {"error": f"Stok {p['name']} belum dilacak; hitung stok fisik dulu atau matikan mode wajib stok."})
-                        line_total = p["price"] * qty
+                        delta, summary, var_lines = resolve_item_variants(c, p, [{"id": o} for o in opt_ids])
+                        unit = p["price"] + delta
+                        line_total = unit * qty
                         total += line_total
-                        prepared.append((p, qty, line_total))
+                        prepared.append((p, qty, unit, line_total, summary, var_lines))
                     stamp = now()
                     c.execute("INSERT INTO sales(id,created_at,total_amount,payment_method,status,note,business_date,request_id) VALUES(?,?,?,?,?,?,?,?)",
                               (sale_id, stamp, total, method, "recorded_manual", note, business_date(stamp), request_id or None))
-                    for p, qty, line_total in prepared:
-                        c.execute("INSERT INTO sale_items(sale_id,product_id,name_snapshot,variant_snapshot,unit_price,quantity,line_total) VALUES(?,?,?,?,?,?,?)",
-                                  (sale_id, p["id"], p["name"], p["variant"], p["price"], qty, line_total))
+                    for p, qty, unit, line_total, summary, var_lines in prepared:
+                        cur = c.execute("INSERT INTO sale_items(sale_id,product_id,name_snapshot,variant_snapshot,unit_price,quantity,line_total,modifiers_summary) VALUES(?,?,?,?,?,?,?,?)",
+                                        (sale_id, p["id"], p["name"], p["variant"], unit, qty, line_total, summary))
+                        for var_line in var_lines:
+                            c.execute("INSERT INTO sale_item_modifiers(sale_item_id,group_name,modifier_name,price_delta) VALUES(?,?,?,?)",
+                                      (cur.lastrowid, var_line["group_name"], var_line["modifier_name"], var_line["price_delta"]))
                         if p["stock_tracked"]:
                             resulting = p["stock_on_hand"] - qty
                             c.execute("UPDATE products SET stock_on_hand=?,updated_at=? WHERE id=?", (resulting, stamp, p["id"]))
@@ -391,12 +557,100 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             return self.send_json(500, {"error": str(exc)})
 
+    def do_DELETE(self):
+        if self.reject_cross_origin_write():
+            return
+        if self.reject_expired_write():
+            return
+        path = urlparse(self.path).path
+        try:
+            if path.startswith("/api/modifiers/option/"):
+                oid = unquote(path.rsplit("/", 1)[-1])
+                with db() as c:
+                    cur = c.execute("UPDATE modifiers SET active=0 WHERE id=?", (oid,))
+                return self.send_json(200, {"deleted": cur.rowcount, "mode": "nonaktif"})
+            if path.startswith("/api/modifiers/group/"):
+                gid = unquote(path.rsplit("/", 1)[-1])
+                with db() as c:
+                    cur = c.execute("UPDATE modifier_groups SET active=0 WHERE id=?", (gid,))
+                    c.execute("UPDATE modifiers SET active=0 WHERE group_id=?", (gid,))
+                    c.execute("DELETE FROM category_modifier_groups WHERE group_id=?", (gid,))
+                return self.send_json(200, {"deleted": cur.rowcount, "mode": "nonaktif"})
+            return self.send_json(404, {"error": "Rute tidak ditemukan."})
+        except Exception as exc:
+            return self.send_json(500, {"error": str(exc)})
+
     def do_PUT(self):
         if self.reject_cross_origin_write():
             return
         if self.reject_expired_write():
             return
         path = urlparse(self.path).path
+        if path.startswith("/api/modifiers/option/"):
+            oid = unquote(path.rsplit("/", 1)[-1])
+            try:
+                data = self.body_json()
+                fields = {}
+                if "name" in data:
+                    fields["name"] = str(data["name"]).strip()[:60]
+                    if not fields["name"]:
+                        return self.send_json(400, {"error": "Nama pilihan tidak boleh kosong."})
+                if "price_delta" in data:
+                    fields["price_delta"] = to_int(data["price_delta"], "Tambahan harga", 0)
+                if "active" in data:
+                    fields["active"] = 1 if data["active"] else 0
+                if not fields:
+                    return self.send_json(400, {"error": "Tidak ada perubahan."})
+                with db() as c:
+                    assigns = ",".join(f"{k}=?" for k in fields)
+                    cur = c.execute(f"UPDATE modifiers SET {assigns} WHERE id=?", (*fields.values(), oid))
+                    if cur.rowcount != 1:
+                        return self.send_json(404, {"error": "Pilihan tidak ditemukan."})
+                    item = row_dict(c.execute("SELECT * FROM modifiers WHERE id=?", (oid,)).fetchone())
+                return self.send_json(200, {"item": item})
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+        if path.startswith("/api/modifiers/group/"):
+            gid = unquote(path.rsplit("/", 1)[-1])
+            try:
+                data = self.body_json()
+                fields = {}
+                if "name" in data:
+                    fields["name"] = str(data["name"]).strip()[:60]
+                    if not fields["name"]:
+                        return self.send_json(400, {"error": "Nama kelompok varian tidak boleh kosong."})
+                for key, label in (("min_select", "Wajib pilih minimal"), ("max_select", "Maksimal pilih")):
+                    if key in data:
+                        fields[key] = to_int(data[key], label, 0 if key == "min_select" else 1)
+                if "active" in data:
+                    fields["active"] = 1 if data["active"] else 0
+                if not fields:
+                    return self.send_json(400, {"error": "Tidak ada perubahan."})
+                with db() as c:
+                    assigns = ",".join(f"{k}=?" for k in fields)
+                    cur = c.execute(f"UPDATE modifier_groups SET {assigns} WHERE id=?", (*fields.values(), gid))
+                    if cur.rowcount != 1:
+                        return self.send_json(404, {"error": "Kelompok varian tidak ditemukan."})
+                    item = row_dict(c.execute("SELECT * FROM modifier_groups WHERE id=?", (gid,)).fetchone())
+                return self.send_json(200, {"item": item})
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+        if path.startswith("/api/modifiers/category/"):
+            category = unquote(path.rsplit("/", 1)[-1])
+            try:
+                data = self.body_json()
+                group_ids = [str(g) for g in (data.get("group_ids") or [])]
+                with db() as c:
+                    known = {r[0] for r in c.execute("SELECT id FROM modifier_groups WHERE active=1")}
+                    unknown = [g for g in group_ids if g not in known]
+                    if unknown:
+                        return self.send_json(400, {"error": "Kelompok varian tidak dikenal: " + ", ".join(unknown)})
+                    c.execute("DELETE FROM category_modifier_groups WHERE category=?", (category,))
+                    for i, gid in enumerate(group_ids):
+                        c.execute("INSERT INTO category_modifier_groups(category,group_id,sort) VALUES(?,?,?)", (category, gid, i))
+                return self.send_json(200, {"category": category, "group_ids": group_ids})
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
         if not path.startswith("/api/products/"):
             return self.send_json(404, {"error": "Rute tidak ditemukan."})
         product_id = unquote(path.rsplit("/", 1)[-1])

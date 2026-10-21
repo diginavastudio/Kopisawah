@@ -1,3 +1,13 @@
+# STATUS AKSES — 23 Oktober 2026
+
+Tulis dibuka (permintaan pemilik): pengarah web meneruskan semua metode, `KOPI_SAWAH_WRITE_UNTIL`
+diset 2099-12-31, dan `kopi-sawah-review-lock.timer` dimatikan. Tidak ada login, jadi siapa pun yang
+tahu alamat dapat mengubah data — hanya untuk uji coba. Untuk mengunci lagi secara manual:
+`systemctl start kopi-sawah-review-lock.service` (memakai `index-review-readonly.html` + konfigurasi
+nginx baca-saja). Belum ada batas waktu otomatis.
+
+---
+
 # Kopi Sawah — catatan jendela uji tim
 
 ## Batas waktu

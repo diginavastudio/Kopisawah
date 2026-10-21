@@ -69,3 +69,85 @@ systemctl start kopi-sawah.service
 ```
 Catatan: migrasi hanya **menambah** kolom (`business_date`, `request_id`, `stock_tracked`);
 tidak menghapus atau mengubah data lama.
+
+
+---
+
+# Ronde 2 — 22/23 Oktober 2026
+
+## 4. Varian & tambahan berbayar (modifier)
+Sebelumnya varian hanya satu kolom teks bebas, tidak bisa menambah harga. Sekarang:
+
+- Tabel baru: `modifier_groups`, `modifiers`, `category_modifier_groups`, `sale_item_modifiers`,
+  plus kolom `sale_items.modifiers_summary`.
+- Benih awal 7 kelompok / 16 pilihan: **Suhu** (Es/Panas), **Level Gula**, **Level Es**, **Ukuran**
+  (Large +Rp5.000), **Extra Shot** (+Rp5.000), **Jenis Susu** (Oat Milk +Rp5.000), **Sambal Tambahan**
+  (Bawang/Terasi +Rp4.000, maks 2).
+- Penugasan **per kategori** (bukan per menu) supaya tidak perlu klik satu-satu:
+  Kopi = Suhu+Gula+Es+Ukuran+Extra Shot+Susu · Minuman = Suhu+Gula+Es+Ukuran · Wedangan = Suhu+Gula ·
+  Makanan/Lauk/Paket/Camilan = Sambal.
+- API: `GET /api/modifiers`, `POST /api/modifiers/groups`, `POST /api/modifiers/options`,
+  `PUT /api/modifiers/group/<id>`, `PUT /api/modifiers/option/<id>`,
+  `PUT /api/modifiers/category/<kategori>`, `DELETE /api/modifiers/group|option/<id>` (menonaktifkan).
+- Transaksi: `items[].modifiers = [{id}]`. Server memvalidasi kelompok wajib/maksimal, menolak varian
+  yang bukan milik kategori, menambah harga, dan menyimpan salinan nama varian pada nota
+  (`unit_price` sudah termasuk tambahan).
+- Layar: kartu menu menampilkan jumlah pilihan varian; ketuk → panel pilihan (radio untuk wajib satu,
+  centang untuk maksimal banyak) dengan harga berjalan; keranjang mengelompokkan baris menurut
+  gabungan menu+varian, jadi "Kopi Es Large" dan "Kopi Panas Regular" jadi dua baris.
+
+## 5. Desain & aset dari kartu menu lampiran
+- Palet diambil dari kartu menu: hijau zaitun gelap `#12150c`–`#272d1b` dengan aksen emas `#e9d27a`
+  dan krem `#f4efdc`. Tema gelap-emas dipakai di seluruh aplikasi (sebelumnya hijau-krem terang).
+- Logo: potongan wordmark "KOPI SAWAH · KLATEN" dari halaman 15 PDF (`static/images/logo-kopi-sawah.png`
+  dan versi transparan `logo-kopi-sawah-transparan.png`) — dipakai di kepala halaman dan favicon.
+- Foto menu: foto asli dari dalam PDF (bukan foto stok) untuk Ayam, Jangan Ndeso, Udang, Cumi,
+  Sop Sawah, empat Paket, Coffee/V60, dan Es Telang. Halaman 2 dipakai sebagai gambar kartu menu di
+  Ringkasan (`static/images/kartu-menu.jpg`). Foto lain tetap memakai foto lama karena PDF tidak
+  menyediakan foto per menu.
+- Halaman ditulis ulang: 7 tab (Ringkasan, Kasir, Menu & Harga, Stok, Riwayat, Laporan, Varian),
+  kartu menu bergambar, panel pesanan lengket, tabel rapi, dan tanggal ditampilkan dalam WIB.
+
+## 6. Harga yang tadinya kosong
+- Long Black (id 121) = **Rp10.000**
+- Ice Americano (id 122) = **Rp15.000**
+- Penanda teks "Harga perlu konfirmasi" pada kedua menu dihapus.
+
+## 7. Akses tulis dibuka (permintaan pemilik)
+- Pengarah web diganti ke `deploy/nginx-writable-location.conf`: **semua metode** diteruskan ke aplikasi
+  (bukan hanya GET/HEAD). Pagar asal permintaan (`KOPI_SAWAH_REQUIRE_ORIGIN=1`) tetap aktif.
+- `KOPI_SAWAH_WRITE_UNTIL=2099-12-31T00:00:00Z` → jendela tulis tanpa batas waktu sampai login dipasang.
+- Timer pengunci otomatis `kopi-sawah-review-lock.timer` **dimatikan** (`systemctl disable --now`),
+  supaya tidak mengembalikan halaman ke baca-saja. Skrip pengunci tetap ada bila ingin dikunci manual:
+  `systemctl start kopi-sawah-review-lock.service`.
+- `KOPI_SAWAH_REQUIRE_STOCK=0` untuk masa uji: menu yang **belum dihitung stoknya** tetap bisa dijual
+  (stok tidak dipotong). Begitu stok sebuah menu dihitung, menu itu otomatis terlacak dan dijaga
+  (tidak boleh melebihi stok). Untuk mewajibkan semua menu berstok, ubah ke `1` lalu restart.
+
+### Konsekuensi yang harus disadari
+Situs kini **dapat diubah siapa pun yang tahu alamatnya** (tanpa login). Jangan masukkan data
+pelanggan/penjualan nyata sampai login dan peran dipasang.
+
+## 8. Data uji dibersihkan
+Transaksi dan gerak stok hasil uji internal dihapus kembali: `sales` = 0, `sale_items` = 0,
+`stock_movements` = 0, `products` = 124, `stock_tracked` = 0. Hitungan stok Es Teh yang dipakai uji
+dikembalikan ke "belum dilacak".
+
+## 9. Cara memeriksa cepat
+```
+curl -s http://127.0.0.1:8791/api/health          # timezone, require_stock, counts
+curl -s http://127.0.0.1:8791/api/modifiers       # kelompok varian + penugasan kategori
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://kopisawah.diginavastudio.com/api/sales \
+  -H 'Content-Type: application/json' -H 'Origin: https://kopisawah.diginavastudio.com' -d '{}'
+git -C /opt/kopi-sawah log --oneline
+```
+
+## 10. Rollback ronde 2
+```
+cp <cadangan>/kopi-sawah-location.conf /home/diginavastudio/conf/web/kopisawah.diginavastudio.com/kopi-sawah-location.conf
+cp <cadangan>/kopi-sawah.service /etc/systemd/system/kopi-sawah.service
+cp <cadangan>/index.html /opt/kopi-sawah/static/index.html
+systemctl daemon-reload && nginx -t && systemctl reload nginx && systemctl restart kopi-sawah.service
+```
+Cadangan ronde 2: `/root/backup-kopi-sawah/20261021-232903-akses/` (konfigurasi nginx + unit systemd).
+Migrasi hanya menambah tabel/kolom; data lama tidak diubah.
