@@ -173,3 +173,39 @@ git push
 - Berkas basis data (`data/*.sqlite3`) dan `__pycache__` dikecualikan lewat `.gitignore`.
 - Repo bersifat publik: berisi kode, aset menu, dan konfigurasi deploy tanpa sandi. Untuk menyembunyikan,
   ubah visibility repo ke Private di GitHub, atau minta `deploy/` dikeluarkan dari repo.
+
+
+---
+
+# Ronde 3 — 23 Oktober 2026: cetak struk & tutup kasir (X/Z)
+
+## 11. Struk pesanan (cetak)
+- Setelah pesanan disimpan, **struk langsung tampil** dalam panel dengan tombol **Cetak struk**
+  (`window.print()`), lalu tinggal pilih printer *thermal* 58/80 mm dari dialog cetak.
+- Isi struk: nama & telepon kedai, nomor pesanan, tanggal-jam **WIB**, nomor sesi, rincian per item
+  berikut varian dan harga satuan, total, metode bayar, dan catatan "struk uji coba".
+- **Cetak ulang** kapan saja dari tab **Riwayat** (tombol "Struk" pada tiap baris).
+- CSS cetak (`@media print`) menyembunyikan seluruh antarmuka dan hanya mencetak kertas struk
+  berlebar 72–82 mm, hitam-putih, tanpa latar gelap.
+- API pendukung: `GET /api/sales/<id>` (satu transaksi lengkap dengan item & varian).
+
+## 12. Tutup kasir: sesi, laporan X dan Z
+- Tabel baru `cash_sessions` + kolom `sales.session_id`.
+- **Buka kasir** dengan *kas awal* (uang di laci). Kalau ada pesanan disimpan tanpa membuka kasir,
+  sesi dibuat otomatis dengan kas awal Rp0 dan diberi catatan "dibuka otomatis saat transaksi pertama".
+- **Laporan X** (sementara, tidak menutup): jumlah transaksi, total penjualan, rincian per metode
+  bayar, tunai/non-tunai, kas awal, dan **kas seharusnya** = kas awal + penjualan tunai.
+- **Laporan Z** (menutup): isi *kas dihitung* (uang fisik) + catatan; sistem menghitung
+  **selisih** = dihitung − seharusnya, menyimpan rekap ke sesi, lalu menampilkan Z yang bisa dicetak
+  dalam format struk.
+- **Riwayat sesi**: daftar sesi dengan waktu buka/tutup, transaksi, total, kas awal, seharusnya,
+  dihitung, dan selisih (hijau bila 0, merah bila tidak). Tombol **Z** mencetak ulang laporan sesi lama.
+- API: `GET /api/cash/current`, `POST /api/cash/open`, `POST /api/cash/close`,
+  `GET /api/cash/sessions`, `GET /api/cash/sessions/<id>`.
+- Diuji (staging, 13/13 skenario): sesi otomatis, tolak buka ganda, X benar, Z dengan selisih ±1.000,
+  sesi kedua dengan kas awal 100.000, dan laporan harian tetap konsisten.
+
+## 13. Catatan
+- Struk mencetak label "struk uji coba · bukan bukti pembayaran" selama belum ada pajak/QRIS resmi.
+- Belum ada: pajak/PB1, service charge, diskon, retur/void, dan login (login sengaja ditunda atas
+  permintaan pemilik sampai desain web selesai).

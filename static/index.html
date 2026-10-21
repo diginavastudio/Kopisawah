@@ -100,6 +100,27 @@ td img.thumb{width:48px;height:40px;object-fit:cover;border-radius:8px;backgroun
 .cek{display:flex;gap:8px;flex-wrap:wrap}
 .cek label{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:6px 11px;background:#141810;cursor:pointer;font-size:12.5px}
 .cek label.on{border-color:#6b5f2c;color:var(--gold);background:#241f0f}
+.struk{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45;color:#12130c;background:#f6f3e6;padding:14px;border-radius:10px;width:min(330px,100%);margin:0 auto}
+.s-tengah{text-align:center}
+.s-brand{font-family:Georgia,serif;font-size:17px;letter-spacing:3px;font-weight:600}
+.s-kecil{font-size:11px;opacity:.9}
+.s-garis{border-top:1px dashed #8a8873;margin:7px 0}
+.s-baris{display:flex;justify-content:space-between;gap:8px;margin:3px 0}
+.s-nama{max-width:62%}
+.s-opsi{opacity:.75}
+.s-angka{white-space:nowrap}
+.s-total{display:flex;justify-content:space-between;font-size:14.5px;font-weight:700;margin:5px 0}
+@media print{
+  .top,nav,main,.toast{display:none!important}
+  body{background:#fff!important}
+  .layar{position:static;inset:auto;background:#fff!important;padding:0;display:block;backdrop-filter:none}
+  .sheet{background:#fff!important;color:#000!important;border:0!important;box-shadow:none!important;max-height:none!important;overflow:visible!important;width:auto!important;max-width:82mm;border-radius:0!important;padding:0!important}
+  .sheet h3,.kaki,.hint{display:none!important}
+  .struk{background:#fff!important;width:auto;padding:0;border-radius:0}
+  .struk,.struk *{color:#000!important}
+  .s-garis{border-color:#000!important}
+  @page{margin:5mm}
+}
 @media(max-width:1000px){.hero,.dua{grid-template-columns:1fr}.kasir{grid-template-columns:1fr}.keranjang{position:static}}
 @media(max-width:640px){nav{top:59px}.top img.logo{height:28px}}
 </style>
@@ -120,6 +141,7 @@ td img.thumb{width:48px;height:40px;object-fit:cover;border-radius:8px;backgroun
   <button data-view="stok">Stok</button>
   <button data-view="riwayat">Riwayat</button>
   <button data-view="laporan">Laporan</button>
+  <button data-view="kasirHarian">Tutup Kasir</button>
   <button data-view="varian">Varian</button>
 </nav>
 <main id="main"></main>
@@ -190,7 +212,7 @@ views.home=async()=>{
    </div>
    <div class="card" style="margin-top:16px">
      <h3 style="margin-top:0">Catatan uji</h3>
-     <p class="note">Data ini untuk uji coba internal. Belum ada login/peran, belum ada pajak, diskon, cetak struk, atau tutup kasir. Zona waktu laporan: ${esc(s.timezone)}. Mode wajib stok: ${s.require_stock?'aktif':'nonaktif'}.</p>
+     <p class="note">Sudah bisa: cetak struk tiap pesanan dan tutup kasir (laporan X/Z dengan selisih kas). Belum ada: pajak/PB1, diskon, dan resep bahan baku. Zona waktu laporan: ${esc(s.timezone)}. Mode wajib stok: ${s.require_stock?'aktif':'nonaktif'}.</p>
    </div>`;
   document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{state.view=b.dataset.go;render()});
 };
@@ -299,6 +321,7 @@ async function simpanPesanan(){
     kunciSimpan=null;state.cart.clear();
     toast((r.duplicate?'Sudah tersimpan: ':'Tersimpan: ')+r.item.id);
     await views.kasir();
+    try{const full=await api('/api/sales/'+encodeURIComponent(r.item.id));bukaStruk(full.item)}catch(e){}
   }catch(e){toast(e.message);b.disabled=false;b.textContent='Simpan pesanan'}
   finally{busy=false}
 }
@@ -370,11 +393,15 @@ views.stok=async()=>{
 views.riwayat=async()=>{
   const s=await api('/api/sales');
   el('#main').innerHTML=title('Riwayat','Waktu ditampilkan dalam WIB. Menyimpan ulang pesanan yang sama tidak membuat baris baru.')
-   +`<div class="tabel"><table><thead><tr><th>Waktu</th><th>ID</th><th>Rincian</th><th>Bayar</th><th>Total</th></tr></thead><tbody>
+   +`<div class="tabel"><table><thead><tr><th>Waktu</th><th>ID</th><th>Rincian</th><th>Bayar</th><th>Total</th><th></th></tr></thead><tbody>
    ${s.items.length?s.items.map(x=>`<tr><td>${esc(lokal(x.created_at))}</td><td class="note">${esc(x.id)}</td>
      <td>${x.items.map(i=>`<div><b>${esc(i.name_snapshot)}</b> × ${i.quantity}${i.modifiers&&i.modifiers.length?`<div class="note">${esc(i.modifiers.map(m=>m.modifier_name).join(' · '))}</div>`:(i.modifiers_summary?`<div class="note">${esc(i.modifiers_summary)}</div>`:'')}</div>`).join('')}</td>
-     <td>${esc(x.payment_method)}</td><td><b style="color:var(--gold)">${money(x.total_amount)}</b></td></tr>`).join(''):'<tr><td colspan="5" class="kosong">Belum ada pesanan.</td></tr>'}
+     <td>${esc(x.payment_method)}</td><td><b style="color:var(--gold)">${money(x.total_amount)}</b></td>
+     <td><button class="btn mini ghost" data-struk="${esc(x.id)}">Struk</button></td></tr>`).join(''):'<tr><td colspan="6" class="kosong">Belum ada pesanan.</td></tr>'}
    </tbody></table></div>`;
+  document.querySelectorAll('[data-struk]').forEach(b=>b.onclick=()=>{
+    const row=s.items.find(x=>x.id===b.dataset.struk);if(row)bukaStruk(row);
+  });
 };
 
 views.laporan=async()=>{
@@ -390,6 +417,72 @@ views.laporan=async()=>{
      </div>
      <div class="card" style="margin-top:16px"><h3 style="margin-top:0">Catatan</h3>
      <p class="note">Tanggal usaha: ${esc(s.today)} · zona ${esc(s.timezone)} · mode wajib stok ${s.require_stock?'aktif':'nonaktif'}. Diskon, pajak, service charge, retur, dan tutup kasir belum diterapkan.</p></div>`;
+};
+
+views.kasirHarian=async()=>{
+  const c=await api('/api/cash/current');
+  const hist=await api('/api/cash/sessions');
+  const r=c.ringkas;
+  el('#main').innerHTML=title('Tutup Kasir','Laporan X = sementara (belum menutup). Laporan Z = menutup sesi dan menyimpan rekap.')
+   +`<div class="grid stats">
+      <div class="card stat"><span>Status kasir</span><b>${c.open?'Terbuka':'Tertutup'}</b></div>
+      <div class="card stat"><span>Transaksi sesi</span><b>${r?r.jumlah_transaksi:0}</b></div>
+      <div class="card stat"><span>Total sesi</span><b>${money(r?r.total_penjualan:0)}</b></div>
+      <div class="card stat"><span>Kas seharusnya</span><b>${money(r?r.kas_seharusnya:0)}</b></div>
+     </div>`
+   +(c.open?`<div class="dua" style="margin-top:16px">
+      <div class="card"><h3 style="margin-top:0">Rincian X · ${esc(r.session.id)}</h3>
+        <table><thead><tr><th>Metode</th><th>Jumlah</th><th>Total</th></tr></thead><tbody>
+        ${(r.rincian||[]).map(x=>`<tr><td>${esc(x.metode)}</td><td>${x.jumlah}</td><td>${money(x.total)}</td></tr>`).join('')||'<tr><td colspan="3" class="kosong">Belum ada transaksi di sesi ini.</td></tr>'}
+        </tbody></table>
+        <p class="note">Kas awal ${money(r.kas_awal)} · tunai ${money(r.tunai)} · non-tunai ${money(r.non_tunai)}<br>Dibuka ${esc(lokal(r.session.opened_at))} WIB</p>
+        <div class="toolbar" style="margin:10px 0 0"><button class="btn ghost" id="cetakX">Cetak laporan X</button></div>
+      </div>
+      <div class="card"><h3 style="margin-top:0">Tutup kasir (Z)</h3>
+        <p class="note">Hitung uang fisik di laci, masukkan jumlahnya; selisih dihitung otomatis.</p>
+        <input class="field" id="kasHitung" type="number" min="0" step="1000" placeholder="Kas dihitung (Rp)" style="width:100%;margin-bottom:8px">
+        <input class="field" id="kasCatatan" placeholder="Catatan (opsional)" style="width:100%;margin-bottom:8px">
+        <button class="btn" id="tutupKasir" style="width:100%">Tutup kasir &amp; simpan Z</button>
+        <p class="note" style="margin:8px 0 0">Penjualan di luar sesi hari ini: ${c.di_luar_sesi.jumlah} (${money(c.di_luar_sesi.total)})</p>
+      </div></div>`
+    :`<div class="dua" style="margin-top:16px">
+      <div class="card"><h3 style="margin-top:0">Buka kasir</h3>
+        <p class="note">Masukkan uang awal di laci supaya selisih kas bisa dihitung saat tutup.</p>
+        <input class="field" id="kasAwal" type="number" min="0" step="1000" placeholder="Kas awal (Rp)" style="width:100%;margin-bottom:8px">
+        <button class="btn" id="bukaKasir" style="width:100%">Buka kasir</button>
+      </div>
+      <div class="card"><h3 style="margin-top:0">Hari ini</h3>
+        <p class="note">${c.hari_ini.jumlah} transaksi · ${money(c.hari_ini.total)}</p>
+        <p class="note">Kalau ada pesanan disimpan tanpa membuka kasir dulu, sesi baru otomatis dibuat dengan kas awal Rp0.</p>
+      </div></div>`)
+   +`<div class="card" style="margin-top:16px"><h3 style="margin-top:0">Riwayat sesi</h3>
+      <div class="tabel"><table><thead><tr><th>Buka</th><th>Tutup</th><th>Trx</th><th>Total</th><th>Kas awal</th><th>Seharusnya</th><th>Dihitung</th><th>Selisih</th><th></th></tr></thead><tbody>
+      ${hist.items.length?hist.items.map(h=>`<tr>
+        <td class="note">${esc(lokal(h.opened_at))}</td><td class="note">${h.closed_at?esc(lokal(h.closed_at)):'—'}</td>
+        <td>${h.total_transactions??'—'}</td><td>${h.total_sales==null?'—':money(h.total_sales)}</td>
+        <td>${money(h.opening_cash)}</td><td>${h.expected_cash==null?'—':money(h.expected_cash)}</td>
+        <td>${h.counted_cash==null?'—':money(h.counted_cash)}</td>
+        <td>${h.difference==null?'—':`<b style="color:${h.difference===0?'var(--ok)':'var(--bad)'}">${h.difference>0?'+':''}${money(h.difference)}</b>`}</td>
+        <td><button class="btn mini ghost" data-z="${esc(h.id)}">Z</button></td></tr>`).join(''):'<tr><td colspan="9" class="kosong">Belum ada sesi kasir.</td></tr>'}
+      </tbody></table></div></div>`;
+  const bk=el('#bukaKasir');
+  if(bk)bk.onclick=async()=>{try{await api('/api/cash/open',{method:'POST',body:JSON.stringify({opening_cash:Number(el('#kasAwal').value||0)})});toast('Kasir dibuka');await views.kasirHarian()}catch(e){toast(e.message)}};
+  const tt=el('#tutupKasir');
+  if(tt)tt.onclick=async()=>{
+    const v=el('#kasHitung').value;
+    if(v==='')return toast('Isi dulu jumlah uang yang dihitung');
+    try{
+      const z=await api('/api/cash/close',{method:'POST',body:JSON.stringify({counted_cash:Number(v),note:el('#kasCatatan').value.trim()})});
+      await views.kasirHarian();
+      lapisan(zHTML(z,true),'Laporan Z',[['Cetak Z',()=>window.print()],['Selesai',null]]);
+      toast('Kasir ditutup · selisih '+(z.session.difference>0?'+':'')+money(z.session.difference));
+    }catch(e){toast(e.message)}
+  };
+  const cx=el('#cetakX');
+  if(cx)cx.onclick=()=>lapisan(zHTML(r,false),'Laporan X',[['Cetak X',()=>window.print()],['Selesai',null]]);
+  document.querySelectorAll('[data-z]').forEach(b=>b.onclick=async()=>{
+    try{const z=await api('/api/cash/sessions/'+encodeURIComponent(b.dataset.z));lapisan(zHTML(z,true),'Laporan Z',[['Cetak Z',()=>window.print()],['Selesai',null]])}catch(e){toast(e.message)}
+  });
 };
 
 views.varian=async()=>{
@@ -448,6 +541,69 @@ views.varian=async()=>{
     try{await api('/api/modifiers/category/'+encodeURIComponent(kategori),{method:'PUT',body:JSON.stringify({group_ids:ids})});toast('Kategori '+kategori+' diperbarui');await views.varian()}catch(e){toast(e.message)}
   });
 };
+
+/* ---------- struk & lapisan ---------- */
+function lapisan(html,judul,tombol){
+  const wrap=document.createElement('div');wrap.className='layar';
+  wrap.innerHTML=`<div class="sheet"><h3>${esc(judul)}</h3>${html}
+    <div class="kaki">${tombol.map(([label,aksi],i)=>`<button class="btn${i?' ghost':''}" data-t="${i}">${esc(label)}</button>`).join('')}</div></div>`;
+  tombol.forEach(([label,aksi],i)=>{wrap.querySelector(`[data-t="${i}"]`).onclick=()=>{if(aksi)aksi();else wrap.remove()}});
+  document.body.appendChild(wrap);
+  return wrap;
+}
+function strukHTML(sale){
+  const rincian=(sale.items||[]).map(i=>{
+    const opsi=(i.modifiers&&i.modifiers.length)?i.modifiers.map(m=>m.modifier_name).join(', '):(i.modifiers_summary||'');
+    return `<div class="s-baris"><div class="s-nama">${esc(i.name_snapshot)}${opsi?` <span class="s-opsi">(${esc(opsi)})</span>`:''}</div>
+      <div class="s-angka">${i.quantity} x ${money(i.unit_price)}</div></div>
+      <div class="s-baris s-kecil"><span></span><span>${money(i.line_total)}</span></div>`}).join('');
+  return `<div class="struk">
+    <div class="s-tengah s-brand">KOPI SAWAH</div>
+    <div class="s-tengah s-kecil">Klaten · 0851-1725-9677</div>
+    <div class="s-garis"></div>
+    <div class="s-kecil">No : ${esc(sale.id)}</div>
+    <div class="s-kecil">Tgl: ${esc(lokal(sale.created_at))} WIB</div>
+    ${sale.session_id?`<div class="s-kecil">Sesi: ${esc(sale.session_id)}</div>`:''}
+    <div class="s-garis"></div>
+    ${rincian}
+    <div class="s-garis"></div>
+    <div class="s-total"><span>TOTAL</span><span>${money(sale.total_amount)}</span></div>
+    <div class="s-baris s-kecil"><span>Bayar</span><span>${esc(sale.payment_method)}</span></div>
+    <div class="s-garis"></div>
+    <div class="s-tengah s-kecil">Terima kasih — Kopi Sawah Klaten</div>
+    <div class="s-tengah s-kecil">struk uji coba · bukan bukti pembayaran</div>
+  </div>`;
+}
+function bukaStruk(sale){
+  lapisan(strukHTML(sale),'Struk pesanan',[['Cetak struk',()=>window.print()],['Selesai',null]]);
+}
+function zHTML(ringkas,tutup){
+  const s=ringkas.session||{};const r=ringkas.rincian||[];
+  const baris=r.map(x=>`<div class="s-baris s-kecil"><span>${esc(x.metode)} (${x.jumlah})</span><span>${money(x.total)}</span></div>`).join('');
+  return `<div class="struk">
+    <div class="s-tengah s-brand">KOPI SAWAH</div>
+    <div class="s-tengah s-kecil">LAPORAN ${tutup?'Z (TUTUP KASIR)':'X (SEMENTARA)'}</div>
+    <div class="s-garis"></div>
+    <div class="s-kecil">Sesi: ${esc(s.id||'—')}</div>
+    <div class="s-kecil">Buka : ${esc(lokal(s.opened_at))} WIB</div>
+    ${s.closed_at?`<div class="s-kecil">Tutup: ${esc(lokal(s.closed_at))} WIB</div>`:''}
+    <div class="s-garis"></div>
+    <div class="s-baris s-kecil"><span>Transaksi</span><span>${ringkas.jumlah_transaksi}</span></div>
+    ${baris}
+    <div class="s-garis"></div>
+    <div class="s-baris"><span>Total penjualan</span><span>${money(ringkas.total_penjualan)}</span></div>
+    <div class="s-baris s-kecil"><span>Tunai</span><span>${money(ringkas.tunai)}</span></div>
+    <div class="s-baris s-kecil"><span>Non-tunai</span><span>${money(ringkas.non_tunai)}</span></div>
+    <div class="s-garis"></div>
+    <div class="s-baris s-kecil"><span>Kas awal</span><span>${money(ringkas.kas_awal)}</span></div>
+    <div class="s-baris"><span>Kas seharusnya</span><span>${money(ringkas.kas_seharusnya)}</span></div>
+    ${s.counted_cash!=null?`<div class="s-baris s-kecil"><span>Kas dihitung</span><span>${money(s.counted_cash)}</span></div>
+    <div class="s-total"><span>Selisih</span><span>${s.difference>0?'+':''}${money(s.difference)}</span></div>`:''}
+    ${s.close_note?`<div class="s-kecil">Catatan: ${esc(s.close_note)}</div>`:''}
+    <div class="s-garis"></div>
+    <div class="s-tengah s-kecil">${tutup?'Kasir ditutup':'Belum ditutup — hanya laporan sementara'}</div>
+  </div>`;
+}
 
 /* ---------- router ---------- */
 async function render(){

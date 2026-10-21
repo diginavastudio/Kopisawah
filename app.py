@@ -150,6 +150,30 @@ def resolve_item_variants(c, product, chosen):
     return delta, summary, lines
 
 
+def open_session(c):
+    row = c.execute("SELECT * FROM cash_sessions WHERE closed_at IS NULL ORDER BY opened_at DESC LIMIT 1").fetchone()
+    return row_dict(row) if row else None
+
+
+def session_row(c, session_id):
+    return row_dict(c.execute("SELECT * FROM cash_sessions WHERE id=?", (session_id,)).fetchone())
+
+
+def session_summary(c, session):
+    if not session:
+        return None
+    rincian = [row_dict(r) for r in c.execute(
+        """SELECT payment_method AS metode, COUNT(*) AS jumlah, COALESCE(SUM(total_amount),0) AS total
+           FROM sales WHERE session_id=? GROUP BY payment_method ORDER BY total DESC""",
+        (session["id"],)).fetchall()]
+    tunai = sum(r["total"] for r in rincian
+                if "tunai" in r["metode"].lower() or "cash" in r["metode"].lower())
+    total = sum(r["total"] for r in rincian)
+    return {"session": session, "rincian": rincian, "jumlah_transaksi": sum(r["jumlah"] for r in rincian),
+            "total_penjualan": total, "tunai": tunai, "non_tunai": total - tunai,
+            "kas_awal": session["opening_cash"], "kas_seharusnya": session["opening_cash"] + tunai}
+
+
 def init_db():
     with db() as c:
         c.executescript("""
@@ -222,6 +246,21 @@ def init_db():
             modifier_name TEXT NOT NULL,
             price_delta INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS cash_sessions (
+            id TEXT PRIMARY KEY,
+            opened_at TEXT NOT NULL,
+            business_date TEXT NOT NULL,
+            opening_cash INTEGER NOT NULL DEFAULT 0 CHECK(opening_cash >= 0),
+            closed_at TEXT,
+            counted_cash INTEGER,
+            expected_cash INTEGER,
+            difference INTEGER,
+            total_sales INTEGER,
+            total_transactions INTEGER,
+            note TEXT NOT NULL DEFAULT '',
+            close_note TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_cash_opened ON cash_sessions(opened_at);
         CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at);
         CREATE INDEX IF NOT EXISTS idx_movements_product_time ON stock_movements(product_id, created_at);
         """)
@@ -230,6 +269,8 @@ def init_db():
             c.execute("ALTER TABLE sales ADD COLUMN business_date TEXT NOT NULL DEFAULT ''")
         if "request_id" not in sales_cols:
             c.execute("ALTER TABLE sales ADD COLUMN request_id TEXT")
+        if "session_id" not in sales_cols:
+            c.execute("ALTER TABLE sales ADD COLUMN session_id TEXT")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_request ON sales(request_id) WHERE request_id IS NOT NULL")
         item_cols = {r["name"] for r in c.execute("PRAGMA table_info(sale_items)")}
         if "modifiers_summary" not in item_cols:
@@ -354,6 +395,23 @@ class Handler(BaseHTTPRequestHandler):
                     cats = [r[0] for r in c.execute(
                         "SELECT DISTINCT category FROM products WHERE active=1 ORDER BY category")]
                 return self.send_json(200, {"groups": groups, "categories": assignments, "product_categories": cats})
+            if path == "/api/cash/current":
+                with db() as c:
+                    sesi = open_session(c)
+                    ringkas = session_summary(c, sesi)
+                    hari = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total_amount),0) t FROM sales WHERE business_date=?",
+                                     (business_date(),)).fetchone()
+                    luar = c.execute("""SELECT COUNT(*) n, COALESCE(SUM(total_amount),0) t FROM sales
+                                        WHERE business_date=? AND (session_id IS NULL OR session_id<>?)""",
+                                     (business_date(), sesi["id"] if sesi else "")).fetchone()
+                return self.send_json(200, {"open": bool(sesi), "ringkas": ringkas,
+                                            "hari_ini": {"jumlah": hari["n"], "total": hari["t"]},
+                                            "di_luar_sesi": {"jumlah": luar["n"], "total": luar["t"]}})
+            if path == "/api/cash/sessions":
+                with db() as c:
+                    rows = [row_dict(r) for r in c.execute(
+                        "SELECT * FROM cash_sessions ORDER BY opened_at DESC LIMIT 40").fetchall()]
+                return self.send_json(200, {"items": rows})
             if path == "/api/stock":
                 with db() as c:
                     rows = [row_dict(r) for r in c.execute("""SELECT id,name,category,variant,stock_on_hand,
@@ -372,6 +430,28 @@ class Handler(BaseHTTPRequestHandler):
                                 (it["id"],)).fetchall()]
                         result.append(d)
                 return self.send_json(200, {"items": result})
+            if path.startswith("/api/cash/sessions/"):
+                sid = unquote(path.rsplit("/", 1)[-1])
+                with db() as c:
+                    sesi = session_row(c, sid)
+                    if not sesi:
+                        return self.send_json(404, {"error": "Sesi kasir tidak ditemukan."})
+                    ringkas = session_summary(c, sesi)
+                return self.send_json(200, ringkas)
+            if path.startswith("/api/sales/"):
+                sid = unquote(path.rsplit("/", 1)[-1])
+                with db() as c:
+                    row = c.execute("SELECT * FROM sales WHERE id=?", (sid,)).fetchone()
+                    if not row:
+                        return self.send_json(404, {"error": "Transaksi tidak ditemukan."})
+                    data = row_dict(row)
+                    data["items"] = [row_dict(r) for r in c.execute(
+                        "SELECT * FROM sale_items WHERE sale_id=? ORDER BY id", (sid,)).fetchall()]
+                    for it in data["items"]:
+                        it["modifiers"] = [row_dict(m) for m in c.execute(
+                            "SELECT group_name,modifier_name,price_delta FROM sale_item_modifiers WHERE sale_item_id=? ORDER BY id",
+                            (it["id"],)).fetchall()]
+                return self.send_json(200, {"item": data})
             if path == "/api/reports/summary":
                 today = business_date()
                 with db() as c:
@@ -416,6 +496,33 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             data = self.body_json()
+            if path == "/api/cash/open":
+                kas = to_int(data.get("opening_cash", 0), "Kas awal", 0)
+                catatan = str(data.get("note", "")).strip()[:160]
+                with db() as c:
+                    if open_session(c):
+                        return self.send_json(409, {"error": "Kasir masih terbuka. Tutup dulu sesi yang berjalan."})
+                    sid = "CS-" + uuid.uuid4().hex[:8].upper()
+                    c.execute("INSERT INTO cash_sessions(id,opened_at,business_date,opening_cash,note) VALUES(?,?,?,?,?)",
+                              (sid, now(), business_date(), kas, catatan))
+                    row = session_row(c, sid)
+                return self.send_json(201, {"session": row})
+            if path == "/api/cash/close":
+                hitung = to_int(data.get("counted_cash", 0), "Kas dihitung", 0)
+                catatan = str(data.get("note", "")).strip()[:160]
+                with db() as c:
+                    c.execute("BEGIN IMMEDIATE")
+                    sesi = open_session(c)
+                    if not sesi:
+                        return self.send_json(409, {"error": "Tidak ada kasir yang terbuka."})
+                    ringkas = session_summary(c, sesi)
+                    selisih = hitung - ringkas["kas_seharusnya"]
+                    c.execute("""UPDATE cash_sessions SET closed_at=?,counted_cash=?,expected_cash=?,difference=?,
+                                 total_sales=?,total_transactions=?,close_note=? WHERE id=?""",
+                              (now(), hitung, ringkas["kas_seharusnya"], selisih, ringkas["total_penjualan"],
+                               ringkas["jumlah_transaksi"], catatan, sesi["id"]))
+                    ringkas["session"] = session_row(c, sesi["id"])
+                return self.send_json(200, ringkas)
             if path == "/api/modifiers/groups":
                 name = str(data.get("name", "")).strip()[:60]
                 if not name:
@@ -534,8 +641,15 @@ class Handler(BaseHTTPRequestHandler):
                         total += line_total
                         prepared.append((p, qty, unit, line_total, summary, var_lines))
                     stamp = now()
-                    c.execute("INSERT INTO sales(id,created_at,total_amount,payment_method,status,note,business_date,request_id) VALUES(?,?,?,?,?,?,?,?)",
-                              (sale_id, stamp, total, method, "recorded_manual", note, business_date(stamp), request_id or None))
+                    sesi = open_session(c)
+                    if sesi:
+                        sesi_id = sesi["id"]
+                    else:
+                        sesi_id = "CS-" + uuid.uuid4().hex[:8].upper()
+                        c.execute("INSERT INTO cash_sessions(id,opened_at,business_date,opening_cash,note) VALUES(?,?,?,?,?)",
+                                  (sesi_id, stamp, business_date(stamp), 0, "dibuka otomatis saat transaksi pertama"))
+                    c.execute("INSERT INTO sales(id,created_at,total_amount,payment_method,status,note,business_date,request_id,session_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                              (sale_id, stamp, total, method, "recorded_manual", note, business_date(stamp), request_id or None, sesi_id))
                     for p, qty, unit, line_total, summary, var_lines in prepared:
                         cur = c.execute("INSERT INTO sale_items(sale_id,product_id,name_snapshot,variant_snapshot,unit_price,quantity,line_total,modifiers_summary) VALUES(?,?,?,?,?,?,?,?)",
                                         (sale_id, p["id"], p["name"], p["variant"], unit, qty, line_total, summary))
