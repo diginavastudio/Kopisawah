@@ -252,6 +252,7 @@ function bukaVarian(p,groups){
       <div class="kaki"><button class="btn ghost" data-batal>Batal</button>
       <button class="btn" data-pilih>Masuk pesanan · ${money(dasar+tambahan)}</button></div></div>`;
     wrap.querySelectorAll('label[data-o]').forEach(l=>l.onclick=e=>{
+      e.preventDefault();e.stopPropagation();
       const gid=l.dataset.g,oid=l.dataset.o,g=groups.find(x=>x.id===gid);
       const set=state.picked.get(gid)||new Set();
       if(g.max_select>1){set.has(oid)?set.delete(oid):(set.size<g.max_select?set.add(oid):toast('Maksimal '+g.max_select+' pilihan'));}
