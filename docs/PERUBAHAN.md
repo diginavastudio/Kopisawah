@@ -151,3 +151,25 @@ systemctl daemon-reload && nginx -t && systemctl reload nginx && systemctl resta
 ```
 Cadangan ronde 2: `/root/backup-kopi-sawah/20261021-232903-akses/` (konfigurasi nginx + unit systemd).
 Migrasi hanya menambah tabel/kolom; data lama tidak diubah.
+
+
+---
+
+# Simpanan kode di GitHub (23 Oktober 2026)
+
+- Repo: **https://github.com/diginavastudio/Kopisawah** (publik, branch `main`).
+- Riwayat lokal di server = riwayat di GitHub (HEAD `1ee7eb4` saat pertama didorong).
+- Remote: `origin` → ambil/fetch via HTTPS publik, dorong/push via SSH berkunci.
+- Kunci: `/root/.ssh/id_ed25519_github_kopisawah` + alias `Host github-kopisawah` di `/root/.ssh/config`
+  (Deploy key "ekko-server" dengan hak tulis). Kunci privat **tidak** pernah masuk repo.
+- Cara mendorong perubahan berikutnya:
+
+```
+cd /opt/kopi-sawah
+git add -A && git commit -m 'pesan perubahan'
+git push
+```
+
+- Berkas basis data (`data/*.sqlite3`) dan `__pycache__` dikecualikan lewat `.gitignore`.
+- Repo bersifat publik: berisi kode, aset menu, dan konfigurasi deploy tanpa sandi. Untuk menyembunyikan,
+  ubah visibility repo ke Private di GitHub, atau minta `deploy/` dikeluarkan dari repo.
