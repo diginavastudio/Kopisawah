@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -20,6 +22,12 @@ CATALOG = DATA / "catalog.json"
 DB_PATH = Path(os.environ.get("KOPI_SAWAH_DB", DATA / "kopi-sawah-dev.sqlite3"))
 PORT = int(os.environ.get("KOPI_SAWAH_PORT", "8791"))
 REQUIRE_ORIGIN = os.environ.get("KOPI_SAWAH_REQUIRE_ORIGIN", "0") == "1"
+TZ_NAME = os.environ.get("KOPI_SAWAH_TZ", "Asia/Jakarta").strip() or "Asia/Jakarta"
+try:
+    TZ = ZoneInfo(TZ_NAME)
+except Exception:
+    TZ_NAME, TZ = "UTC", timezone.utc
+REQUIRE_STOCK = os.environ.get("KOPI_SAWAH_REQUIRE_STOCK", "0") == "1"
 WRITE_UNTIL_RAW = os.environ.get("KOPI_SAWAH_WRITE_UNTIL", "").strip()
 VALID_IMAGE_KEYS = {p.stem for p in (STATIC / "images").glob("*.jpg")}
 
@@ -37,7 +45,16 @@ def write_window_expired():
 
 
 def now():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(TZ).isoformat(timespec="seconds")
+
+
+def business_date(stamp=None):
+    if stamp is None:
+        return datetime.now(TZ).date().isoformat()
+    try:
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).astimezone(TZ).date().isoformat()
+    except (ValueError, OverflowError):
+        return str(stamp)[:10]
 
 
 @contextmanager
@@ -102,6 +119,17 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at);
         CREATE INDEX IF NOT EXISTS idx_movements_product_time ON stock_movements(product_id, created_at);
         """)
+        sales_cols = {r["name"] for r in c.execute("PRAGMA table_info(sales)")}
+        if "business_date" not in sales_cols:
+            c.execute("ALTER TABLE sales ADD COLUMN business_date TEXT NOT NULL DEFAULT ''")
+        if "request_id" not in sales_cols:
+            c.execute("ALTER TABLE sales ADD COLUMN request_id TEXT")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_request ON sales(request_id) WHERE request_id IS NOT NULL")
+        product_cols = {r["name"] for r in c.execute("PRAGMA table_info(products)")}
+        if "stock_tracked" not in product_cols:
+            c.execute("ALTER TABLE products ADD COLUMN stock_tracked INTEGER NOT NULL DEFAULT 0")
+        for stale in c.execute("SELECT id, created_at FROM sales WHERE business_date=''").fetchall():
+            c.execute("UPDATE sales SET business_date=? WHERE id=?", (business_date(stale["created_at"]), stale["id"]))
         count = c.execute("SELECT COUNT(*) FROM products").fetchone()[0]
         if count == 0 and CATALOG.exists():
             rows = json.loads(CATALOG.read_text(encoding="utf-8"))
@@ -182,8 +210,12 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/health":
                 with db() as c:
                     counts = {"products": c.execute("SELECT COUNT(*) FROM products").fetchone()[0],
-                              "sales": c.execute("SELECT COUNT(*) FROM sales").fetchone()[0]}
-                return self.send_json(200, {"ok": True, "mode": "local-development", "counts": counts})
+                              "sales": c.execute("SELECT COUNT(*) FROM sales").fetchone()[0],
+                              "untracked_stock": c.execute(
+                                  "SELECT COUNT(*) FROM products WHERE active=1 AND stock_tracked=0").fetchone()[0]}
+                return self.send_json(200, {"ok": True, "mode": "local-development", "counts": counts,
+                                            "timezone": TZ_NAME, "business_date": business_date(),
+                                            "require_stock": REQUIRE_STOCK})
             if path == "/api/products":
                 qs = parse_qs(url.query)
                 q = (qs.get("q", [""])[0] or "").strip()
@@ -203,7 +235,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/stock":
                 with db() as c:
                     rows = [row_dict(r) for r in c.execute("""SELECT id,name,category,variant,stock_on_hand,
-                        reorder_level,image_key FROM products WHERE active=1 ORDER BY category,name,variant,id""").fetchall()]
+                        reorder_level,image_key,stock_tracked FROM products WHERE active=1 ORDER BY category,name,variant,id""").fetchall()]
                 return self.send_json(200, {"items": rows})
             if path == "/api/sales":
                 with db() as c:
@@ -215,15 +247,17 @@ class Handler(BaseHTTPRequestHandler):
                         result.append(d)
                 return self.send_json(200, {"items": result})
             if path == "/api/reports/summary":
-                today = datetime.now(timezone.utc).date().isoformat()
+                today = business_date()
                 with db() as c:
-                    day = c.execute("SELECT COUNT(*) n,COALESCE(SUM(total_amount),0) total FROM sales WHERE substr(created_at,1,10)=?", (today,)).fetchone()
-                    low = c.execute("SELECT COUNT(*) FROM products WHERE active=1 AND stock_on_hand IS NOT NULL AND reorder_level IS NOT NULL AND stock_on_hand<=reorder_level").fetchone()[0]
-                    unknown = c.execute("SELECT COUNT(*) FROM products WHERE active=1 AND stock_on_hand IS NULL").fetchone()[0]
+                    day = c.execute("SELECT COUNT(*) n,COALESCE(SUM(total_amount),0) total FROM sales WHERE COALESCE(NULLIF(business_date,''),substr(created_at,1,10))=?", (today,)).fetchone()
+                    low = c.execute("SELECT COUNT(*) FROM products WHERE active=1 AND stock_tracked=1 AND stock_on_hand IS NOT NULL AND reorder_level IS NOT NULL AND stock_on_hand<=reorder_level").fetchone()[0]
+                    unknown = c.execute("SELECT COUNT(*) FROM products WHERE active=1 AND stock_tracked=0").fetchone()[0]
+                    tracked = c.execute("SELECT COUNT(*) FROM products WHERE active=1 AND stock_tracked=1").fetchone()[0]
                     all_sales = c.execute("SELECT COUNT(*) FROM sales").fetchone()[0]
                     all_total = c.execute("SELECT COALESCE(SUM(total_amount),0) FROM sales").fetchone()[0]
-                return self.send_json(200, {"today_transactions": day["n"], "today_total": day["total"],
-                                           "low_stock": low, "unknown_stock": unknown,
+                return self.send_json(200, {"today": today, "timezone": TZ_NAME, "require_stock": REQUIRE_STOCK,
+                                           "today_transactions": day["n"], "today_total": day["total"],
+                                           "low_stock": low, "unknown_stock": unknown, "tracked_stock": tracked,
                                            "all_transactions": all_sales, "all_total": all_total})
             if path == "/" or path == "/index.html":
                 return self.serve_file(STATIC / "index.html")
@@ -279,12 +313,13 @@ class Handler(BaseHTTPRequestHandler):
                     if not p:
                         return self.send_json(404, {"error": "Menu tidak ditemukan."})
                     old = p["stock_on_hand"]
+                    tracked = 1 if data.get("stock_tracked", True) else 0
                     delta = counted if old is None else counted - old
                     kind = "opening_count" if old is None else "count_adjustment"
-                    c.execute("UPDATE products SET stock_on_hand=?,updated_at=? WHERE id=?", (counted, now(), product_id))
+                    c.execute("UPDATE products SET stock_on_hand=?,stock_tracked=?,updated_at=? WHERE id=?", (counted, tracked, now(), product_id))
                     c.execute("INSERT INTO stock_movements(product_id,movement_type,quantity_change,resulting_quantity,note,created_at) VALUES(?,?,?,?,?,?)",
                               (product_id, kind, delta, counted, note, now()))
-                    item = row_dict(c.execute("SELECT id,name,stock_on_hand,reorder_level FROM products WHERE id=?", (product_id,)).fetchone())
+                    item = row_dict(c.execute("SELECT id,name,stock_on_hand,reorder_level,stock_tracked FROM products WHERE id=?", (product_id,)).fetchone())
                 return self.send_json(201, {"item": item, "quantity_change": delta})
             if path == "/api/sales":
                 items = data.get("items")
@@ -297,6 +332,18 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(400, {"error": "Keranjang kosong."})
                 if not method:
                     return self.send_json(400, {"error": "Isi metode pembayaran yang dicatat."})
+                raw_request = data.get("request_id")
+                request_id = str(raw_request).strip() if raw_request else ""
+                if request_id and not re.fullmatch(r"[A-Za-z0-9._:-]{6,64}", request_id):
+                    return self.send_json(400, {"error": "Kunci permintaan transaksi tidak valid."})
+                if request_id:
+                    with db() as c:
+                        dup = c.execute("SELECT * FROM sales WHERE request_id=?", (request_id,)).fetchone()
+                        if dup:
+                            replay = row_dict(dup)
+                            replay["items"] = [row_dict(r) for r in c.execute(
+                                "SELECT * FROM sale_items WHERE sale_id=? ORDER BY id", (dup["id"],)).fetchall()]
+                            return self.send_json(200, {"item": replay, "duplicate": True})
                 quantities = {}
                 for entry in items:
                     pid = str(entry.get("product_id", ""))
@@ -313,18 +360,23 @@ class Handler(BaseHTTPRequestHandler):
                             return self.send_json(404, {"error": f"Menu {pid} tidak ditemukan."})
                         if p["price"] is None:
                             return self.send_json(409, {"error": f"Harga {p['name']} belum diisi."})
-                        if p["stock_on_hand"] is not None and p["stock_on_hand"] < qty:
+                        tracked = 1 if p["stock_tracked"] else 0
+                        if tracked and p["stock_on_hand"] is None:
+                            return self.send_json(409, {"error": f"Stok {p['name']} terlacak tetapi angkanya kosong; hitung stok fisik dulu."})
+                        if tracked and p["stock_on_hand"] < qty:
                             return self.send_json(409, {"error": f"Stok {p['name']} tidak cukup."})
+                        if not tracked and REQUIRE_STOCK:
+                            return self.send_json(409, {"error": f"Stok {p['name']} belum dilacak; hitung stok fisik dulu atau matikan mode wajib stok."})
                         line_total = p["price"] * qty
                         total += line_total
                         prepared.append((p, qty, line_total))
                     stamp = now()
-                    c.execute("INSERT INTO sales(id,created_at,total_amount,payment_method,status,note) VALUES(?,?,?,?,?,?)",
-                              (sale_id, stamp, total, method, "recorded_manual", note))
+                    c.execute("INSERT INTO sales(id,created_at,total_amount,payment_method,status,note,business_date,request_id) VALUES(?,?,?,?,?,?,?,?)",
+                              (sale_id, stamp, total, method, "recorded_manual", note, business_date(stamp), request_id or None))
                     for p, qty, line_total in prepared:
                         c.execute("INSERT INTO sale_items(sale_id,product_id,name_snapshot,variant_snapshot,unit_price,quantity,line_total) VALUES(?,?,?,?,?,?,?)",
                                   (sale_id, p["id"], p["name"], p["variant"], p["price"], qty, line_total))
-                        if p["stock_on_hand"] is not None:
+                        if p["stock_tracked"]:
                             resulting = p["stock_on_hand"] - qty
                             c.execute("UPDATE products SET stock_on_hand=?,updated_at=? WHERE id=?", (resulting, stamp, p["id"]))
                             c.execute("INSERT INTO stock_movements(product_id,movement_type,quantity_change,resulting_quantity,note,created_at) VALUES(?,?,?,?,?,?)",
@@ -355,6 +407,8 @@ class Handler(BaseHTTPRequestHandler):
                 fields["price"] = to_int(data["price"], "Harga", 1, allow_none=True)
             if "reorder_level" in data:
                 fields["reorder_level"] = to_int(data["reorder_level"], "Ambang stok", 0, allow_none=True)
+            if "stock_tracked" in data:
+                fields["stock_tracked"] = 1 if data["stock_tracked"] else 0
             for key in ("name", "category", "variant"):
                 if key in data:
                     fields[key] = str(data[key]).strip()
