@@ -22,3 +22,5 @@ BATAS PEMAKAIAN
 • Jangan masukkan transaksi/pelanggan nyata sampai pemilik menyetujui penggunaan nyata, cadangan/pemulihan diuji, aturan usaha dan harga katalog ditinjau, serta kebutuhan laporan diselesaikan.
 • Jangan membuka port aplikasi 8791 ke jaringan; hanya Nginx yang boleh meneruskan ke alamat lokal.
 • HTTPS publik hanya membuka pratinjau baca-saja; jangan hapus pembatas metode atau catat transaksi nyata tanpa persetujuan dan pengaman tambahan.
+
+Uji deploy otomatis: baris ini ditambahkan dari salinan lain pada 2026-10-22.
