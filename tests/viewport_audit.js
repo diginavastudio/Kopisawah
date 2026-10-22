@@ -13,7 +13,7 @@ const free = () => new Promise(r => { const s = net.createServer(); s.listen(0, 
 const SIZES = (process.env.ONLY ? (all => all.filter(x => x[0].includes(process.env.ONLY)))  : (all => all))([
   ['hp-kecil 320x568', 320, 568], ['hp 360x640', 360, 640], ['hp 390x844', 390, 844], ['hp-besar 412x915', 412, 915],
   ['tablet-tegak 768x1024', 768, 1024], ['tablet-datar 1024x768', 1024, 768], ['tablet-android 1280x800', 1280, 800],
-  ['laptop 1366x768', 1366, 768], ['laptop-zoom125 1093x614', 1093, 614], ['laptop-zoom150 911x512', 911, 512], ['pendek 1366x600', 1366, 600], ['desktop 1920x1080', 1920, 1080],
+  ['laptop 1366x768', 1366, 768], ['laptop-zoom125 1093x614', 1093, 614], ['laptop-zoom150 911x512', 911, 512], ['pendek 1366x600', 1366, 600], ['desktop 1920x1080', 1920, 1080], ['desktop 1600x900', 1600, 900], ['layar-lebar 2560x1440', 2560, 1440],
 ]);
 
 (async () => {
@@ -29,7 +29,7 @@ const SIZES = (process.env.ONLY ? (all => all.filter(x => x[0].includes(process.
     await api.post('/api/auth/setup', { data: { name: 'Digi', pin: '482916', setup_code: '12345678' } });
     await api.put('/api/settings', { data: { tax_percent: '10', service_percent: '5', rounding: '100', kasir_max_discount_percent: '10' } });
     await api.post('/api/shifts/open', { data: { opening_cash: 100000 } });
-    await api.post('/api/tables', { data: { count: 14 } });
+    await api.post('/api/tables', { data: { count: 20 } });
     const tables = (await (await api.get('/api/tables')).json()).items;
     const newOrder = async (t, ip) => {   // satu pesanan baru (menunggu) per putaran supaya data uji tidak menumpuk
       await fetch(`${base}/api/public/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, 'X-Real-IP': ip }, body: JSON.stringify({ t, customer_name: 'Bu Sari dengan nama panjang sekali', note: 'tolong jangan terlalu pedas dan tambahkan sambal terpisah ya', items: [{ product_id: '4', quantity: 2 }, { product_id: '7', quantity: 1 }, { product_id: '9', quantity: 1, modifiers: [{ id: 'nasi-2' }] }] }) });
@@ -101,6 +101,9 @@ const SIZES = (process.env.ONLY ? (all => all.filter(x => x[0].includes(process.
       await page.click('[data-act=mejaMode][data-m=dapur]'); await page.waitForSelector('.btn.big:has-text("Siap")'); await page.waitForTimeout(250); await measure(page, 'papan-dapur', size);
       await page.click('[data-act=mejaMode][data-m=meja]'); await page.waitForSelector('[data-act=payTable]'); await page.waitForTimeout(500); await page.click('[data-act=payTable]'); await page.waitForSelector('#coPay'); await page.waitForTimeout(250); await measure(page, 'bayar-meja-sheet', size); await page.keyboard.press('Escape');
       for (const v of ['home', 'pesanan', 'laporan', 'kas']) await view(v, '#main .page-head, #main h2');
+      await go('laporan', '[data-act=repOpen]');
+      for (const r of ['sales', 'monthly', 'top', 'sold', 'cust']) { await page.click(`[data-act=repOpen][data-r=${r}]`); await page.waitForTimeout(450); await measure(page, 'laporan-' + r, size); await page.click('[data-act=repBack]'); await page.waitForSelector('[data-act=repOpen]'); }
+      await page.click('[data-act=repOpen][data-r=cust]'); await page.waitForTimeout(300); await page.click('[data-act=custAdd]'); await page.waitForSelector('#theForm'); await page.waitForTimeout(250); await measure(page, 'pelanggan-form-sheet', size); await page.keyboard.press('Escape');
       await go('kelola', '[data-act=sub]');
       for (const sub of ['menu', 'stok', 'varian', 'meja', 'tim', 'atur']) { await page.click(`[data-act=sub][data-s=${sub}]`); await page.waitForTimeout(450); await measure(page, 'kelola-' + sub, size); }
       await page.click('[data-act=sub][data-s=menu]'); await page.waitForSelector('[data-act=editProduct]');

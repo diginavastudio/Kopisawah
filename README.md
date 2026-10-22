@@ -21,7 +21,8 @@ dibuat untuk pengguna awam (HP, tablet, atau laptop).
 | **Struk & tiket** | Struk 58/80 mm dan tiket dapur lewat cetak browser |
 | **Pembatalan** | Pemilik dapat membatalkan transaksi (alasan wajib), stok dikembalikan |
 | **Stok** | Hitungan fisik per menu, otomatis berkurang & tidak boleh minus, tanda "habis" cepat dari kasir |
-| **Laporan** | Penjualan bersih, per cara bayar, jam ramai, per hari, menu terlaris, laba kotor perkiraan (dari HPP), unduh CSV |
+| **Beranda & Laporan** | Beranda: KPI, grafik 7/30 hari, jam ramai, cara bayar, kategori, terlaris, panel operasional. Laporan (5): Transaksi Penjualan, Omzet Per Bulan, Produk Terlaris, Produk Terjual, Transaksi Pelanggan; laba kotor (dari HPP), CSV |
+| **Pelanggan** | Nama pelanggan di nota/pesanan QR, daftar & rincian per pelanggan, nomor HP (pemilik) |
 | **Menu** | 124 menu sesuai *Menu Baru* (PDF): foto hasil potongan dari PDF, deskripsi, ⭐ favorit, pilihan khusus per menu (mis. *Tanpa nasi −Rp4.000*), unggah foto sendiri dari HP |
 | **Offline** | Kasir tetap bisa dibuka & menjual saat internet putus; penjualan terkirim otomatis saat tersambung (pesanan QR butuh internet) |
 | **Dapur & meja** | Papan dapur, pindah/gabung meja, bayar sebagian per pesanan, QRIS toko (statis) di HP pelanggan, level pedas |
@@ -40,10 +41,11 @@ kasir di **Kelola → Tim**.
 Uji otomatis (memakai database sementara):
 
 ```bash
-python3 -m unittest discover -s tests -v                          # API (20 tes)
+python3 -m unittest discover -s tests -v                          # API (21 tes)
 NODE_PATH=/opt/node-tools/node_modules node tests/browser_check.js    # alur layar di Chromium
 NODE_PATH=/opt/node-tools/node_modules node tests/browser_ronde5.js    # offline, papan dapur, QRIS, foto
-NODE_PATH=/opt/node-tools/node_modules node tests/viewport_audit.js    # "pas layar": 12 ukuran layar
+NODE_PATH=/opt/node-tools/node_modules node tests/viewport_audit.js    # "pas layar": 14 ukuran layar
+NODE_PATH=/opt/node-tools/node_modules node tests/browser_ronde6.js    # beranda, 5 laporan, pelanggan, layar lebar
 ```
 
 ### Variabel lingkungan

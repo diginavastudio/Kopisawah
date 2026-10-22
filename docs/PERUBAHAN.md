@@ -248,3 +248,16 @@ Detail: [`REVIEW.md`](REVIEW.md) bagian 7–9.
 - **Panduan mulai** di Beranda dan tombol **?** Bantuan.
 - Tes: API 18 → 20; `browser_ronde5.js` (±20 pemeriksaan termasuk skenario offline nyata).
 - Variabel baru: `KOPI_SAWAH_BACKUP_DIR`, `KOPI_SAWAH_BACKUP_HOUR` (bawaan 3), `KOPI_SAWAH_BACKUP_KEEP` (bawaan 14).
+
+
+---
+
+# Ronde 6 — 22 Oktober 2026: layar lebar, laporan lengkap, beranda lengkap, pelanggan
+
+- **Pas layar lebar:** konten `main`, header, tab memakai lebar penuh (maks 2000 px, padding `clamp`), panel keranjang dan kartu menu ikut melebar. Teruji di 1600/1920/2560 px.
+- **Laporan = hub 5 laporan** (mengikuti contoh aplikasi pembanding): Transaksi Penjualan (omzet, transaksi, uang masuk, laba kotor, tagihan meja belum dibayar, diskon & batal), Omzet Per Bulan (grafik + Δ%), Produk Terlaris, Produk Terjual (cari + CSV), Transaksi Pelanggan. Filter: Hari ini / Kemarin / 7 hari / Bulan ini / Pilih tanggal.
+- **Beranda lengkap:** KPI hari ini/bulan ini/7 hari dengan pembanding, grafik 7/30 hari, jam ramai, cara bayar, jenis pesanan, kategori, menu terlaris, panel Operasional (shift, antrean QR, tagihan meja, QR vs kasir, batal, diskon, pelanggan, stok), perlu perhatian, panduan.
+- **Pelanggan:** kolom *Nama pelanggan* saat bayar (saran dari nama sebelumnya, tampil di struk, ikut antrean offline); pesanan QR membawa nama pelanggan; pemilik bisa tambah/ubah/ganti nama + nomor HP (data pribadi — minta persetujuan pelanggan). Tabel baru `customers`, kolom `sales.customer_name` (migrasi idempoten).
+- **Piutang:** belum ada (semua nota lunas saat dibayar). Yang tersedia: *tagihan meja belum dibayar*.
+- Tes: API 20 → 21; `browser_ronde6.js` (±35 pemeriksaan); `viewport_audit.js` diperluas (14 ukuran, + 5 laporan + sheet pelanggan).
+- Rollback: kolom/tabel baru hanya tambahan; kode lama tetap bisa membuka database.
