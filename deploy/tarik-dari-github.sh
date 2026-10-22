@@ -58,7 +58,7 @@ fi
 
 # 3. periksa sintaks JavaScript di index.html (kalau node tersedia)
 if command -v node >/dev/null 2>&1 && [ -f "$REPO/static/index.html" ]; then
-  tmp_js=$(mktemp)
+  tmp_js=$(mktemp /tmp/kopi-js-XXXXXX.js)
   sed -n '/^<script>$/,/^<\/script>$/p' "$REPO/static/index.html" | sed '1d;$d' > "$tmp_js"
   if [ -s "$tmp_js" ] && ! node --check "$tmp_js" >/dev/null 2>&1; then
     rm -f "$tmp_js"
