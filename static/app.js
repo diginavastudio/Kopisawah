@@ -427,10 +427,10 @@ async function viewHome() {
     [su.qris, 'Unggah gambar QRIS toko (opsional)', 'Pelanggan bisa bayar QRIS dari meja.', ['kelola', 'Unggah QRIS', 'atur']],
     [su.backups > 0, 'Pastikan cadangan otomatis berjalan', 'Cek di Pengaturan setelah jam 03:00.', ['kelola', 'Lihat cadangan', 'atur']],
   ], done = steps.filter(x => x[0]).length;
-  const guide = done < steps.length ? `<div class="card"><div class="row between wrap"><h3 style="margin:0">Panduan mulai <span class="pill gold">${done}/${steps.length}</span></h3><button class="btn ghost sm" data-act="help">Buka bantuan</button></div><div class="list" style="margin-top:6px">${steps.map(([d, t, sub, a]) => `<div class="item"><span class="pill ${d ? 'ok' : ''}" style="min-width:30px;text-align:center">${d ? '✓' : '•'}</span><div class="grow"><div class="t" ${d ? 'style="text-decoration:line-through;opacity:.6"' : ''}>${esc(t)}</div><div class="s">${esc(sub)}</div></div>${d ? '' : `<button class="btn ghost sm" data-act="go" data-view="${a[0]}" data-sub="${a[2]}">${a[1]}</button>`}</div>`).join('')}</div></div>` : '';
+  const guide = '';  // Disembunyikan atas permintaan pemilik (23 Okt 2026): panel 'Panduan mulai'.
   const st = s.stats, t = st.today, days = state.homeDays || 30;
   const series = days === 7 ? s.series30.slice(-7) : s.series30;
-  const attention = `<div class="card"><h3>Perlu perhatian</h3>${alerts.length ? `<div class="list">${alerts.map(([k, t, d, a]) => `<div class="item"><span class="pill ${k}">${k === 'ok' ? 'Info' : k === 'bad' ? 'Penting' : k === 'warn' ? 'Cek' : 'Saran'}</span><div class="grow"><div class="t">${t}</div><div class="s">${d}</div></div>${a ? `<button class="btn ghost sm" data-act="go" data-view="${a[0]}" ${a[2] ? `data-sub="${a[2]}"` : ''}>${a[1]}</button>` : ''}</div>`).join('')}</div>` : '<div class="empty">Semua beres 👍</div>'}</div>`;
+  const attention = '';  // Disembunyikan atas permintaan pemilik (23 Okt 2026): panel 'Perlu perhatian'.
   const topList = l => l.length ? `<div class="list">${l.map((x, i) => `<div class="item"><span class="rank">${i + 1}</span><div class="t grow">${esc(x.name)}</div><span class="pill">${x.qty}×</span><b>${rp(x.revenue)}</b></div>`).join('')}</div>` : emptyNote('Belum ada penjualan.');
   const profit = x => x.coverage ? rp(x.gross_profit) : '—';
   const covNote = x => x.coverage == null ? 'belum ada penjualan' : x.coverage === 0 ? 'isi HPP menu agar terhitung' : `dari ${x.coverage}% penjualan ber-HPP`;

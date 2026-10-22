@@ -451,3 +451,25 @@ laporan jalan, `sw.js` + `order.js` + `vendor/qrcode.js` tersedia (200), pemasan
 - `app.py` dan `static/app.js` tergabung otomatis; **tambalan mode tanpa login tetap utuh**
   (`TANPA_LOGIN` 13 kemunculan, `py_compile` OK; `state.tanpaLogin` + tombol Keluar bersyarat masih ada).
 - Alat deploy (`deploy/tarik-dari-github.sh`, unit `kopi-sawah-deploy.*`) tetap ada di `main`.
+
+
+---
+
+# Ronde 9 — 23 Oktober 2026: panel Beranda disembunyikan (permintaan pemilik)
+
+## 35. Perubahan
+Di halaman **Beranda/Ringkasan**, dua panel berikut **tidak ditampilkan lagi**:
+- **“Panduan mulai 4/7”** (checklist onboarding)
+- **“Perlu perhatian”** (daftar saran/peringatan)
+
+Caranya: `static/app.js` — dua variabel tata letak (`guide` dan `attention`) diisi string kosong
+(alih-alih dirender). Tidak ada logika/penghitungan yang dihapus, jadi mudah dikembalikan.
+
+Yang **tetap ada**: tombol **Bantuan** di kepala halaman, tombol **Semua laporan**, kartu statistik
+(penjualan, laba kotor, item terjual, bulan ini, 7 hari), grafik 30 hari, jam ramai, cara bayar,
+jenis pesanan, kategori/menu terlaris, dan **Operasional saat ini**.
+
+## 36. Catatan penting saat merge berikutnya
+Panel ini ada di kode cabang PR. Setiap kali menggabungkan versi baru dari cabang PR, tambalan ini
+harus **dipasang ulang** (dua baris di `static/app.js`):
+`const guide = '';` dan `const attention = '';`.
