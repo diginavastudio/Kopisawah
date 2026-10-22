@@ -249,7 +249,7 @@ function navItems() {
 }
 function shell() {
   $('#app').innerHTML = `<header class="top"><img src="/static/images/logo-kopi-sawah-transparan.png" alt="Kopi Sawah">
-    <div class="who"><span id="shiftChip"></span><span class="nm">${esc(state.me.name)} · ${ROLE_NAME[state.me.role]}</span><button class="btn ghost" data-act="logout">Keluar</button></div></header>
+    <div class="who"><span id="shiftChip"></span><span class="nm">${esc(state.me.name)} · ${ROLE_NAME[state.me.role]}</span>${state.tanpaLogin ? '' : '<button class="btn ghost" data-act="logout">Keluar</button>'}</div></header>
     <nav class="tabs" id="tabs" aria-label="Menu utama">${navItems().map(([id, label, ic]) => `<button data-act="go" data-view="${id}">${icon(ic)}<span>${label}</span></button>`).join('')}</nav>
     <main id="main"></main>`;
   updateShiftChip();
@@ -827,6 +827,7 @@ async function boot() {
     if (s.setup_required) return setupScreen();
     if (!s.user) { state.staff = s.staff || []; return loginScreen(); }
     Object.assign(state, { me: s.user, settings: s.settings, methods: s.payment_methods, orderTypes: s.order_types });
+    state.tanpaLogin = !!s.tanpa_login;
     state.products = []; state.mods = null;
     await loadShift();
     shell();

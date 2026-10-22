@@ -413,7 +413,7 @@ def user_for_token(c, token):
 
 
 SETUP_CODE = os.environ.get("KOPI_SAWAH_SETUP_CODE", "").strip() or "".join(secrets.choice("0123456789") for _ in range(8))
-NAMA_TANPA_LOGIN = "Kasir (tanpa login)"
+NAMA_TANPA_LOGIN = "Kasir"
 PENGGUNA_TANPA_LOGIN = None
 
 
@@ -492,7 +492,8 @@ def r_auth_status(req):
     with db() as c:
         total = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         out = {"setup_required": total == 0, "user": req.user,
-               "payment_methods": PAYMENT_METHODS, "order_types": ORDER_TYPES}
+               "payment_methods": PAYMENT_METHODS, "order_types": ORDER_TYPES,
+               "tanpa_login": TANPA_LOGIN}
         if req.user:
             out["settings"] = get_settings(c)
         elif total:
