@@ -29,6 +29,14 @@ if [ "$sebelum" = "$tujuan" ]; then
   exit 0
 fi
 
+# server lebih baru dari GitHub (ada commit lokal yang belum didorong) -> diamkan
+di_belakang=$(git rev-list --count "$tujuan..$sebelum")
+di_depan=$(git rev-list --count "$sebelum..$tujuan")
+if [ "$di_depan" -eq 0 ] && [ "$di_belakang" -gt 0 ]; then
+  log "server lebih baru dari GitHub (${di_belakang} commit lokal belum didorong) — dilewati"
+  exit 0
+fi
+
 HOLD=/var/lib/kopi-sawah/DEPLOY-HOLD
 if [ -f "$HOLD" ] && [ "$(head -n1 "$HOLD")" = "$tujuan" ]; then
   log "versi ${tujuan:0:7} sebelumnya gagal dipasang — dilewati (hapus $HOLD setelah diperbaiki)"

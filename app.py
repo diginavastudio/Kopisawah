@@ -152,11 +152,27 @@ def resolve_item_variants(c, product, chosen):
 
 
 def live_version():
+    """Versi yang benar-benar ada di disk: commit dari .git/HEAD, waktu pasang dari berkas VERSION."""
+    info = {"commit": "", "deployed_at": "", "full": ""}
+    try:
+        head = (ROOT / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref:"):
+            ref = head.split(":", 1)[1].strip()
+            info["full"] = (ROOT / ".git" / ref).read_text(encoding="utf-8").strip()
+        else:
+            info["full"] = head
+        info["commit"] = info["full"][:7]
+    except OSError:
+        pass
     try:
         parts = VERSION_FILE.read_text(encoding="utf-8").split()
+        if len(parts) > 1:
+            info["deployed_at"] = parts[1]
     except OSError:
-        return {"commit": "", "deployed_at": "", "catatan": "belum ada penanda versi"}
-    return {"commit": parts[0] if parts else "", "deployed_at": parts[1] if len(parts) > 1 else ""}
+        pass
+    if not info["commit"]:
+        info["catatan"] = "penanda versi tidak terbaca"
+    return info
 
 
 def open_session(c):
