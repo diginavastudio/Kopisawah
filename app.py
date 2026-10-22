@@ -46,11 +46,14 @@ try:
 except Exception:
     TZ_NAME, TZ = "UTC", timezone.utc
 VALID_IMAGE_KEYS = {p.stem for p in (STATIC / "images").glob("*.jpg")}
+UPLOAD_DIR = DB_PATH.parent / "uploads"   # di folder database (systemd hanya mengizinkan tulis di sana)
+MENU_PATCH = DATA / "menu_patch_v4.json"
+CATEGORY_ORDER = ["Makanan", "Lauk", "Paket", "Sup", "Sayuran", "Camilan", "Kopi", "Minuman", "Wedangan", "Add-on"]
 
 SESSION_HOURS = 12
 PIN_ITERATIONS = 200_000
 MAX_FAILS_USER, MAX_FAILS_IP, LOCK_SECONDS = 5, 20, 300
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 PAYMENT_METHODS = {"tunai": "Tunai", "qris": "QRIS", "debit": "Kartu Debit/Kredit",
                    "ewallet": "E-Wallet", "transfer": "Transfer Bank"}
@@ -61,7 +64,14 @@ SETTING_DEFAULTS = {
     "receipt_footer": "Terima kasih, sampai jumpa lagi!", "receipt_width": "58",
     "tax_percent": "0", "service_percent": "0", "rounding": "0",
     "kasir_max_discount_percent": "0",
+    "outlet_contact": "Reservasi 0851-1725-9677 · IG @kafekopisawah",
+    "public_base_url": "",
 }
+ORDER_OPEN = ("pending", "accepted", "ready", "served")
+ORDER_STATUS_NAME = {"pending": "Menunggu konfirmasi", "accepted": "Sedang diproses", "ready": "Siap",
+                     "served": "Sudah disajikan", "paid": "Selesai", "rejected": "Ditolak", "cancelled": "Dibatalkan"}
+ORDER_NEXT = {"pending": ("accepted", "rejected", "cancelled"), "accepted": ("ready", "served", "cancelled"),
+              "ready": ("served", "cancelled"), "served": ("cancelled",)}
 
 
 # --------------------------------------------------------------------------- util
@@ -135,6 +145,16 @@ def to_int(value, label, minimum=0, maximum=None, allow_none=False):
     return value
 
 
+def image_ok(key):
+    if key == "none" or key in VALID_IMAGE_KEYS:
+        return True
+    return bool(re.fullmatch(r"up-[0-9a-f]{12}", str(key))) and (UPLOAD_DIR / f"{key}.jpg").is_file()
+
+
+def clean_image(key):
+    return key if image_ok(key) else "none"
+
+
 def money_round(x):
     return int(Decimal(x).quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
@@ -158,22 +178,45 @@ def csv_safe(value):
 VARIAN_SEED = [
     ("suhu", "Suhu", 1, 1, [("Es", 0), ("Panas", 0)]),
     ("gula", "Level Gula", 1, 1, [("Normal", 0), ("Less Sugar", 0), ("No Sugar", 0)]),
-    ("es", "Level Es", 1, 1, [("Normal", 0), ("Sedikit", 0), ("Tanpa Es", 0)]),
+    ("es", "Level Es", 0, 1, [("Normal", 0), ("Sedikit", 0), ("Tanpa Es", 0)]),
     ("ukuran", "Ukuran", 1, 1, [("Regular", 0), ("Large", 5000)]),
     ("shot", "Extra Shot", 0, 1, [("Tanpa Extra Shot", 0), ("Extra Shot", 5000)]),
     ("susu", "Jenis Susu", 1, 1, [("Susu UHT", 0), ("Oat Milk", 5000)]),
     ("sambal", "Sambal Tambahan", 0, 2, [("Sambal Bawang", 4000), ("Sambal Terasi", 4000)]),
 ]
+# Grup khusus dari Menu Baru (PDF). ID tetap supaya patch aman diulang.
+VARIAN_BARU = [
+    ("masak-gg", "Cara Masak (Goreng/Godog)", 1, 1, [("Goreng", 0), ("Godog", 0)]),
+    ("masak-gb", "Cara Masak (Goreng/Bakar)", 1, 1, [("Goreng", 0), ("Bakar", 0)]),
+    ("asal", "Asal Kopi", 1, 1, [("Temanggung", 0), ("Merapi", 0)]),
+    ("rasa-susu", "Rasa Susu", 1, 1, [("Putih", 0), ("Coklat", 0)]),
+    ("sisi", "Pendamping Katsu", 1, 1, [("Nasi", 0), ("Frenchfries", 0)]),
+    ("nasi", "Nasi", 1, 1, [("Pakai nasi", 0), ("Tanpa nasi", -4000)]),
+    ("teh", "Minum Paket", 1, 1, [("Teh Panas", 0), ("Teh Es", 0)]),
+]
 VARIAN_KATEGORI = {
     "Kopi": ["suhu", "gula", "es", "ukuran", "shot", "susu"],
     "Minuman": ["suhu", "gula", "es", "ukuran"],
-    "Wedangan": ["suhu", "gula"],
+    "Wedangan": ["gula"],
     "Makanan": ["sambal"], "Lauk": ["sambal"], "Paket": ["sambal"], "Camilan": ["sambal"],
 }
 
 
+def ensure_new_groups(c):
+    for gid, gname, lo, hi, options in VARIAN_BARU:
+        if c.execute("SELECT 1 FROM modifier_groups WHERE id=?", (gid,)).fetchone():
+            continue
+        order = c.execute("SELECT COALESCE(MAX(sort),0)+1 FROM modifier_groups").fetchone()[0]
+        c.execute("INSERT OR IGNORE INTO modifier_groups(id,name,min_select,max_select,sort,active) VALUES(?,?,?,?,?,1)",
+                  (gid, gname, lo, hi, order))
+        for i, (name, delta) in enumerate(options):
+            c.execute("INSERT OR IGNORE INTO modifiers(id,group_id,name,price_delta,sort,active) VALUES(?,?,?,?,?,1)",
+                      (f"{gid}-{i+1}", gid, name, delta, i))
+
+
 def seed_modifiers(c):
     if c.execute("SELECT COUNT(*) FROM modifier_groups").fetchone()[0]:
+        ensure_new_groups(c)
         return
     for order, (gid, gname, lo, hi, options) in enumerate(VARIAN_SEED):
         c.execute("INSERT INTO modifier_groups(id,name,min_select,max_select,sort,active) VALUES(?,?,?,?,?,1)",
@@ -185,12 +228,18 @@ def seed_modifiers(c):
         for i, gid in enumerate(groups):
             c.execute("INSERT OR IGNORE INTO category_modifier_groups(category,group_id,sort) VALUES(?,?,?)",
                       (category, gid, i))
+    ensure_new_groups(c)
 
 
-def variant_groups_for(c, category):
+def variant_groups_for(c, product):
+    """Grup pilihan sebuah menu: daftar khusus menu bila ada, kalau tidak mengikuti kategori."""
+    if product["custom_modifiers"]:
+        return rows(c, """SELECT g.* FROM product_modifier_groups pm
+                          JOIN modifier_groups g ON g.id=pm.group_id
+                          WHERE pm.product_id=? AND g.active=1 ORDER BY pm.sort,g.sort""", (product["id"],))
     return rows(c, """SELECT g.* FROM category_modifier_groups cm
                       JOIN modifier_groups g ON g.id=cm.group_id
-                      WHERE cm.category=? AND g.active=1 ORDER BY cm.sort,g.sort""", (category,))
+                      WHERE cm.category=? AND g.active=1 ORDER BY cm.sort,g.sort""", (product["category"],))
 
 
 def variant_options(c, group_id):
@@ -199,7 +248,7 @@ def variant_options(c, group_id):
 
 def resolve_item_variants(c, product, option_ids):
     """Validasi pilihan varian satu item; kembalikan (tambahan_harga, ringkasan, baris)."""
-    allowed = {g["id"]: g for g in variant_groups_for(c, product["category"])}
+    allowed = {g["id"]: g for g in variant_groups_for(c, product)}
     picked = {}
     for oid in option_ids:
         row = c.execute("""SELECT m.id,m.group_id,m.name,m.price_delta FROM modifiers m
@@ -226,8 +275,11 @@ def resolve_item_variants(c, product, option_ids):
 
     def label(l):  # nama sama di dua kelompok (mis. "Normal") diberi nama kelompok agar tidak ambigu
         name = f"{l['group_name']} {l['modifier_name']}" if seen[l["modifier_name"]] > 1 else l["modifier_name"]
-        return name + (f" (+{l['price_delta']//1000}rb)" if l["price_delta"] else "")
+        d = l["price_delta"]
+        return name + (f" ({'+' if d > 0 else '−'}{abs(d)//1000}rb)" if d else "")
     summary = ", ".join(label(l) for l in lines)
+    if p_unit_invalid(product, delta):
+        raise ApiError(400, f"Pilihan untuk {product['name']} membuat harga tidak valid.")
     return delta, summary, lines
 
 
@@ -235,6 +287,71 @@ def resolve_item_variants(c, product, option_ids):
 def ensure_column(c, table, column, ddl):
     if column not in {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}:
         c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
+def p_unit_invalid(product, delta):
+    return product["price"] is None or product["price"] + delta <= 0
+
+
+def rebuild_modifiers_without_check(c):
+    """Versi lama melarang tambahan harga negatif (CHECK). Buang batasnya agar "Tanpa nasi −4rb" bisa dipakai."""
+    row = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='modifiers'").fetchone()
+    if not row or "price_delta >= 0" not in row[0]:
+        return
+    c.execute("DROP TABLE IF EXISTS modifiers_old")
+    c.execute("ALTER TABLE modifiers RENAME TO modifiers_old")
+    c.execute("""CREATE TABLE modifiers (
+        id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES modifier_groups(id),
+        name TEXT NOT NULL, price_delta INTEGER NOT NULL DEFAULT 0,
+        sort INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1)""")
+    c.execute("INSERT INTO modifiers SELECT id,group_id,name,price_delta,sort,active FROM modifiers_old")
+    c.execute("DROP TABLE modifiers_old")
+
+
+def apply_menu_patch(c):
+    """Sesuaikan database yang sudah berjalan dengan katalog Menu Baru tanpa menimpa ubahan pemilik.
+
+    - deskripsi/favorit: hanya mengisi yang masih kosong;
+    - foto: hanya mengganti bila foto saat ini masih foto bawaan lama (dipetakan di menu_patch_v4.json);
+    - nama: "Oriental" (judul halaman sampul yang salah terbaca sebagai menu) → "Air Es";
+    - pilihan khusus per menu: hanya bila menu belum punya daftar sendiri.
+    """
+    if not CATALOG.exists():
+        return
+    done = c.execute("SELECT value FROM settings WHERE key='menu_patch'").fetchone()
+    if done and int(done[0]) >= 4:
+        return
+    old_images = json.loads(MENU_PATCH.read_text(encoding="utf-8")).get("old_images", {}) if MENU_PATCH.exists() else {}
+    ensure_new_groups(c)
+    c.execute("UPDATE modifier_groups SET min_select=0 WHERE id='es' AND min_select=1")
+    if [r[0] for r in c.execute("SELECT group_id FROM category_modifier_groups WHERE category='Wedangan' ORDER BY sort")] == ["suhu", "gula"]:
+        c.execute("DELETE FROM category_modifier_groups WHERE category='Wedangan' AND group_id='suhu'")
+    for p in json.loads(CATALOG.read_text(encoding="utf-8")):
+        pid = str(p["id"])
+        row = c.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
+        if not row:
+            continue
+        sets, args = [], []
+        if not row["description"] and p.get("description"):
+            sets.append("description=?"); args.append(p["description"])
+        if p.get("featured") and not row["featured"]:
+            sets.append("featured=1")
+        want = clean_image(p.get("image_key"))
+        if row["image_key"] != want and row["image_key"] == old_images.get(pid):
+            sets.append("image_key=?"); args.append(want)
+        if pid == "124" and row["name"] == "Oriental":
+            sets.append("name=?"); args.append("Air Es")
+        if sets:
+            c.execute(f"UPDATE products SET {','.join(sets)} WHERE id=?", (*args, pid))
+        if "groups" in p and not row["custom_modifiers"]:
+            known = {r[0] for r in c.execute("SELECT id FROM modifier_groups")}
+            for i, gid in enumerate(g for g in p["groups"] if g in known):
+                c.execute("INSERT OR IGNORE INTO product_modifier_groups(product_id,group_id,sort) VALUES(?,?,?)", (pid, gid, i))
+            c.execute("UPDATE products SET custom_modifiers=1 WHERE id=?", (pid,))
+    for r in c.execute("SELECT id,image_key FROM products").fetchall():  # foto lama yang berkasnya sudah tidak ada
+        if not image_ok(r["image_key"]):
+            c.execute("UPDATE products SET image_key='none' WHERE id=?", (r["id"],))
+    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('menu_patch','4')")
 
 
 def init_db():
@@ -276,7 +393,7 @@ def init_db():
             sort INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1);
         CREATE TABLE IF NOT EXISTS modifiers (
             id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES modifier_groups(id),
-            name TEXT NOT NULL, price_delta INTEGER NOT NULL DEFAULT 0 CHECK(price_delta >= 0),
+            name TEXT NOT NULL, price_delta INTEGER NOT NULL DEFAULT 0,
             sort INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1);
         CREATE TABLE IF NOT EXISTS category_modifier_groups (
             category TEXT NOT NULL, group_id TEXT NOT NULL REFERENCES modifier_groups(id),
@@ -302,6 +419,34 @@ def init_db():
             closed_at TEXT, counted_cash INTEGER, expected_cash INTEGER, difference INTEGER,
             note TEXT NOT NULL DEFAULT '');
         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS product_modifier_groups (
+            product_id TEXT NOT NULL REFERENCES products(id),
+            group_id TEXT NOT NULL REFERENCES modifier_groups(id),
+            sort INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (product_id, group_id));
+        CREATE TABLE IF NOT EXISTS dining_tables (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT NOT NULL COLLATE NOCASE UNIQUE, token TEXT NOT NULL UNIQUE,
+            active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS orders (
+            id TEXT PRIMARY KEY, table_id INTEGER NOT NULL REFERENCES dining_tables(id),
+            table_label TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+            customer_name TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+            subtotal INTEGER NOT NULL DEFAULT 0, request_id TEXT,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, handled_by TEXT NOT NULL DEFAULT '',
+            reason TEXT NOT NULL DEFAULT '', sale_id TEXT, business_date TEXT NOT NULL DEFAULT '');
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_request ON orders(request_id) WHERE request_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at);
+        CREATE TABLE IF NOT EXISTS order_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL REFERENCES orders(id),
+            product_id TEXT NOT NULL REFERENCES products(id),
+            name_snapshot TEXT NOT NULL, variant_snapshot TEXT NOT NULL DEFAULT '',
+            unit_price INTEGER NOT NULL CHECK(unit_price > 0), quantity INTEGER NOT NULL CHECK(quantity > 0),
+            line_total INTEGER NOT NULL, modifiers_summary TEXT NOT NULL DEFAULT '',
+            modifiers_json TEXT NOT NULL DEFAULT '[]');
+        CREATE TABLE IF NOT EXISTS table_calls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER NOT NULL REFERENCES dining_tables(id),
+            table_label TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('waiter','bill')),
+            created_at TEXT NOT NULL, handled_at TEXT, handled_by TEXT NOT NULL DEFAULT '');
         CREATE TABLE IF NOT EXISTS audit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, user_name TEXT NOT NULL,
             action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '');
@@ -317,6 +462,11 @@ def init_db():
         ensure_column(c, "products", "cost", "INTEGER NULL CHECK(cost IS NULL OR cost >= 0)")
         ensure_column(c, "products", "available", "INTEGER NOT NULL DEFAULT 1")
         ensure_column(c, "sale_items", "cost_snapshot", "INTEGER NULL")
+        ensure_column(c, "products", "description", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(c, "products", "featured", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(c, "products", "custom_modifiers", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(c, "sales", "order_ids", "TEXT NOT NULL DEFAULT ''")
+        rebuild_modifiers_without_check(c)
         for col, ddl in (("subtotal", "INTEGER NOT NULL DEFAULT 0"), ("discount_amount", "INTEGER NOT NULL DEFAULT 0"),
                          ("discount_reason", "TEXT NOT NULL DEFAULT ''"), ("service_amount", "INTEGER NOT NULL DEFAULT 0"),
                          ("tax_amount", "INTEGER NOT NULL DEFAULT 0"), ("rounding_amount", "INTEGER NOT NULL DEFAULT 0"),
@@ -336,12 +486,14 @@ def init_db():
         seed_modifiers(c)
         if c.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 0 and CATALOG.exists():
             for p in json.loads(CATALOG.read_text(encoding="utf-8")):
-                image_key = p.get("image_key") if p.get("image_key") in VALID_IMAGE_KEYS else "snack"
+                image_key = clean_image(p.get("image_key"))
                 c.execute("""INSERT INTO products
-                    (id,name,category,variant,price,stock_on_hand,reorder_level,image_key,draft,active,updated_at)
-                    VALUES (?,?,?,?,?,NULL,NULL,?,1,1,?)""",
+                    (id,name,category,variant,price,stock_on_hand,reorder_level,image_key,draft,active,updated_at,
+                     description,featured)
+                    VALUES (?,?,?,?,?,NULL,NULL,?,1,1,?,?,?)""",
                           (str(p["id"]), p["name"], p.get("category", "Lainnya"), p.get("variant", ""),
-                           p.get("price"), image_key, now()))
+                           p.get("price"), image_key, now(), p.get("description", ""), 1 if p.get("featured") else 0))
+        apply_menu_patch(c)
 
 
 # --------------------------------------------------------------------------- pengaturan & audit
@@ -664,6 +816,10 @@ def r_settings_put(req):
             v = str(v)
             if v not in ("58", "80"):
                 raise ApiError(400, "Lebar struk harus 58 atau 80 mm.")
+        elif key == "public_base_url":
+            v = str(v).strip().rstrip("/")[:120]
+            if v and not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:\d{1,5})?", v):
+                raise ApiError(400, "Alamat situs harus seperti https://namatoko.com (tanpa garis miring di akhir atau jalur lain).")
         else:
             v = str(v).strip()[:120]
         clean[key] = v
@@ -697,7 +853,9 @@ def r_products(req):
     with db() as c:
         items = rows(c, sql + " ORDER BY category,name,variant,id", args)
     owner = is_owner(req)
-    return {"items": [product_public(p, owner) for p in items], "images": sorted(VALID_IMAGE_KEYS) if owner else []}
+    for p in items:
+        p["image_key"] = clean_image(p["image_key"])
+    return {"items": [product_public(p, owner) for p in items], "images": ["none"] + sorted(VALID_IMAGE_KEYS) if owner else []}
 
 
 def clean_product_fields(d, partial):
@@ -715,8 +873,10 @@ def clean_product_fields(d, partial):
     if "active" in d:
         fields["active"] = 1 if d["active"] else 0
     if "image_key" in d:
-        fields["image_key"] = d["image_key"] if d["image_key"] in VALID_IMAGE_KEYS else "snack"
-    for key, limit in (("name", 80), ("category", 40), ("variant", 80)):
+        fields["image_key"] = d["image_key"] if image_ok(d["image_key"]) else "none"
+    if "featured" in d:
+        fields["featured"] = 1 if d["featured"] else 0
+    for key, limit in (("name", 80), ("category", 40), ("variant", 80), ("description", 300)):
         if key in d:
             fields[key] = str(d[key]).strip()[:limit]
     if "name" in fields and not fields["name"]:
@@ -735,10 +895,11 @@ def r_product_add(req):
     f = clean_product_fields(d, partial=False)
     pid = "new-" + uuid.uuid4().hex[:12]
     with db(write=True) as c:
-        c.execute("""INSERT INTO products(id,name,category,variant,price,cost,image_key,draft,active,updated_at)
-                     VALUES(?,?,?,?,?,?,?,0,1,?)""",
+        c.execute("""INSERT INTO products(id,name,category,variant,price,cost,image_key,draft,active,updated_at,
+                                          description,featured)
+                     VALUES(?,?,?,?,?,?,?,0,1,?,?,?)""",
                   (pid, f["name"], f["category"], f.get("variant", ""), f["price"], f.get("cost"),
-                   f.get("image_key", "snack"), now()))
+                   f.get("image_key", "none"), now(), f.get("description", ""), f.get("featured", 0)))
         audit(c, req.user, "tambah_menu", f"{f['name']} harga {f['price']}")
         return Resp(201, {"item": row_dict(c.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone())})
 
@@ -774,6 +935,60 @@ def r_product_availability(req):
     return {"id": pid, "available": avail}
 
 
+@route("PUT", r"/api/products/([^/]+)/modifiers", "owner")
+def r_product_modifiers(req):
+    """mode "category" = ikut kategori; "custom" = daftar sendiri untuk menu ini."""
+    pid, d = unquote(req.match.group(1)), req.data
+    mode = d.get("mode")
+    if mode not in ("category", "custom"):
+        raise ApiError(400, "Mode harus 'category' atau 'custom'.")
+    group_ids = [str(g) for g in (d.get("group_ids") or [])]
+    with db(write=True) as c:
+        p = c.execute("SELECT id,name FROM products WHERE id=?", (pid,)).fetchone()
+        if not p:
+            raise ApiError(404, "Menu tidak ditemukan.")
+        known = {r[0] for r in c.execute("SELECT id FROM modifier_groups WHERE active=1")}
+        unknown = [g for g in group_ids if g not in known]
+        if unknown:
+            raise ApiError(400, "Kelompok varian tidak dikenal: " + ", ".join(unknown))
+        c.execute("DELETE FROM product_modifier_groups WHERE product_id=?", (pid,))
+        if mode == "custom":
+            for i, gid in enumerate(dict.fromkeys(group_ids)):
+                c.execute("INSERT INTO product_modifier_groups(product_id,group_id,sort) VALUES(?,?,?)", (pid, gid, i))
+        c.execute("UPDATE products SET custom_modifiers=?,updated_at=? WHERE id=?", (1 if mode == "custom" else 0, now(), pid))
+        audit(c, req.user, "pilihan_menu", f"{p['name']}: {mode} {group_ids if mode == 'custom' else ''}")
+    return {"id": pid, "mode": mode, "group_ids": group_ids if mode == "custom" else []}
+
+
+@route("POST", r"/api/products/([^/]+)/photo", "owner")
+def r_product_photo(req):
+    """Terima foto JPEG (sudah dikecilkan oleh peramban) sebagai data URL."""
+    pid = unquote(req.match.group(1))
+    raw = str(req.data.get("image", ""))
+    m = re.fullmatch(r"data:image/jpeg;base64,([A-Za-z0-9+/=\s]+)", raw)
+    if not m:
+        raise ApiError(400, "Foto harus berformat JPEG.")
+    import base64
+    try:
+        blob = base64.b64decode(m.group(1), validate=False)
+    except Exception:
+        raise ApiError(400, "Foto tidak bisa dibaca.")
+    if len(blob) < 1000 or len(blob) > 700_000 or blob[:3] != b"\xff\xd8\xff":
+        raise ApiError(400, "Foto tidak valid atau terlalu besar (maksimal sekitar 700 KB).")
+    key = "up-" + secrets.token_hex(6)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    with db(write=True) as c:
+        p = c.execute("SELECT id,name,image_key FROM products WHERE id=?", (pid,)).fetchone()
+        if not p:
+            raise ApiError(404, "Menu tidak ditemukan.")
+        (UPLOAD_DIR / f"{key}.jpg").write_bytes(blob)
+        c.execute("UPDATE products SET image_key=?,updated_at=? WHERE id=?", (key, now(), pid))
+        if str(p["image_key"]).startswith("up-"):
+            (UPLOAD_DIR / f"{p['image_key']}.jpg").unlink(missing_ok=True)
+        audit(c, req.user, "ganti_foto_menu", p["name"])
+    return {"id": pid, "image_key": key}
+
+
 # --------------------------------------------------------------------------- rute: varian
 @route("GET", r"/api/modifiers")
 def r_modifiers(req):
@@ -785,7 +1000,13 @@ def r_modifiers(req):
         for r in c.execute("SELECT category,group_id FROM category_modifier_groups ORDER BY sort,rowid"):
             assignments.setdefault(r["category"], []).append(r["group_id"])
         cats = [r[0] for r in c.execute("SELECT DISTINCT category FROM products WHERE active=1 ORDER BY category")]
-    return {"groups": groups, "categories": assignments, "product_categories": cats}
+        product_groups = {}
+        for r in c.execute("""SELECT pm.product_id,pm.group_id FROM product_modifier_groups pm
+                              JOIN products p ON p.id=pm.product_id WHERE p.custom_modifiers=1 ORDER BY pm.sort"""):
+            product_groups.setdefault(r["product_id"], []).append(r["group_id"])
+        for r in c.execute("SELECT id FROM products WHERE custom_modifiers=1"):
+            product_groups.setdefault(r["id"], [])
+    return {"groups": groups, "categories": assignments, "product_categories": cats, "product_groups": product_groups}
 
 
 @route("POST", r"/api/modifiers/groups", "owner")
@@ -817,7 +1038,7 @@ def r_option_add(req):
     d = req.data
     gid = str(d.get("group_id", "")).strip()
     name = str(d.get("name", "")).strip()[:60]
-    delta = to_int(d.get("price_delta", 0), "Tambahan harga", 0, 10_000_000)
+    delta = to_int(d.get("price_delta", 0), "Tambahan harga", -10_000_000, 10_000_000)
     if not name:
         raise ApiError(400, "Nama pilihan tidak boleh kosong.")
     with db(write=True) as c:
@@ -839,7 +1060,7 @@ def r_option_edit(req):
         if not fields["name"]:
             raise ApiError(400, "Nama pilihan tidak boleh kosong.")
     if "price_delta" in d:
-        fields["price_delta"] = to_int(d["price_delta"], "Tambahan harga", 0, 10_000_000)
+        fields["price_delta"] = to_int(d["price_delta"], "Tambahan harga", -10_000_000, 10_000_000)
     if "active" in d:
         fields["active"] = 1 if d["active"] else 0
     if not fields:
@@ -1005,14 +1226,91 @@ def sale_detail(c, sale_id):
     return d
 
 
-@route("POST", r"/api/sales")
-def r_sale_add(req):
-    d, user = req.data, req.user
-    items = d.get("items")
+def normalize_lines(items):
+    """Gabungkan baris pesanan yang sama (menu + pilihan yang sama) → {(product_id, (id_pilihan...)): jumlah}."""
     if not isinstance(items, list) or not items:
         raise ApiError(400, "Pesanan masih kosong.")
     if len(items) > 100:
         raise ApiError(400, "Terlalu banyak baris pesanan.")
+    lines = {}
+    for entry in items:
+        if not isinstance(entry, dict):
+            raise ApiError(400, "Format pesanan tidak valid.")
+        pid = str(entry.get("product_id", ""))
+        qty = to_int(entry.get("quantity"), "Jumlah", 1, 999)
+        chosen = entry.get("modifiers") or []
+        if not isinstance(chosen, list):
+            raise ApiError(400, "Format varian tidak valid.")
+        ids = tuple(sorted(str(m.get("id") if isinstance(m, dict) else m) for m in chosen))
+        lines[(pid, ids)] = lines.get((pid, ids), 0) + qty
+    return lines
+
+
+def price_lines(c, lines):
+    """Harga dihitung ulang di server dari database (tidak pernah percaya harga dari klien)."""
+    prepared, need, products = [], {}, {}
+    for (pid, opt_ids), qty in lines.items():
+        p = products.get(pid) or c.execute("SELECT * FROM products WHERE id=? AND active=1", (pid,)).fetchone()
+        if not p:
+            raise ApiError(404, "Ada menu yang sudah tidak tersedia. Muat ulang halaman menu.")
+        products[pid] = p
+        if p["price"] is None:
+            raise ApiError(409, f"Harga {p['name']} belum diisi.")
+        if not p["available"]:
+            raise ApiError(409, f"{p['name']} sedang habis.")
+        if not p["stock_tracked"] and REQUIRE_STOCK:
+            raise ApiError(409, f"Stok {p['name']} belum dilacak; hitung stok fisik dulu.")
+        delta, summary, var_lines = resolve_item_variants(c, p, opt_ids)
+        need[pid] = need.get(pid, 0) + qty
+        prepared.append((p, qty, p["price"] + delta, summary, var_lines))
+    check_stock(products, need)
+    return prepared, need, products
+
+
+def check_stock(products, need):
+    for pid, qty in need.items():
+        p = products[pid]
+        if p["stock_tracked"]:
+            if p["stock_on_hand"] is None:
+                raise ApiError(409, f"Stok {p['name']} terlacak tetapi angkanya kosong; hitung stok fisik dulu.")
+            if p["stock_on_hand"] < qty:
+                raise ApiError(409, f"Stok {p['name']} tidak cukup (sisa {p['stock_on_hand']}).")
+
+
+def lines_from_orders(c, order_ids):
+    """Baris penjualan dari pesanan meja (memakai harga saat dipesan, supaya tidak berubah di depan pelanggan)."""
+    if not isinstance(order_ids, list) or not order_ids or len(order_ids) > 30:
+        raise ApiError(400, "Pilih pesanan yang akan dibayar.")
+    orders = []
+    for oid in dict.fromkeys(str(x) for x in order_ids):
+        o = c.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+        if not o:
+            raise ApiError(404, f"Pesanan {oid} tidak ditemukan.")
+        if o["status"] == "paid":
+            raise ApiError(409, f"Pesanan {oid} sudah dibayar.")
+        if o["status"] == "pending":
+            raise ApiError(409, f"Pesanan {oid} belum diterima. Terima dulu sebelum dibayar.")
+        if o["status"] not in ("accepted", "ready", "served"):
+            raise ApiError(409, f"Pesanan {oid} berstatus {ORDER_STATUS_NAME.get(o['status'], o['status'])}.")
+        orders.append(o)
+    if len({o["table_id"] for o in orders}) > 1:
+        raise ApiError(400, "Pesanan dari meja berbeda tidak bisa dibayar bersamaan.")
+    prepared, need, products = [], {}, {}
+    for o in orders:
+        for it in c.execute("SELECT * FROM order_items WHERE order_id=? ORDER BY id", (o["id"],)).fetchall():
+            p = products.get(it["product_id"]) or c.execute("SELECT * FROM products WHERE id=?", (it["product_id"],)).fetchone()
+            if not p:
+                raise ApiError(409, f"Menu {it['name_snapshot']} sudah dihapus dari sistem.")
+            products[p["id"]] = p
+            need[p["id"]] = need.get(p["id"], 0) + it["quantity"]
+            prepared.append((p, it["quantity"], it["unit_price"], it["modifiers_summary"], json.loads(it["modifiers_json"] or "[]")))
+    check_stock(products, need)
+    return orders, prepared, need, products
+
+
+@route("POST", r"/api/sales")
+def r_sale_add(req):
+    d, user = req.data, req.user
     method = str(d.get("payment_method", "")).strip()
     if method not in PAYMENT_METHODS:
         raise ApiError(400, "Pilih cara bayar.")
@@ -1025,17 +1323,8 @@ def r_sale_add(req):
     request_id = str(raw_request).strip() if raw_request else ""
     if request_id and not re.fullmatch(r"[A-Za-z0-9._:-]{6,64}", request_id):
         raise ApiError(400, "Kunci permintaan transaksi tidak valid.")
-    lines = {}
-    for entry in items:
-        if not isinstance(entry, dict):
-            raise ApiError(400, "Format pesanan tidak valid.")
-        pid = str(entry.get("product_id", ""))
-        qty = to_int(entry.get("quantity"), "Jumlah", 1, 999)
-        chosen = entry.get("modifiers") or []
-        if not isinstance(chosen, list):
-            raise ApiError(400, "Format varian tidak valid.")
-        ids = tuple(sorted(str(m.get("id") if isinstance(m, dict) else m) for m in chosen))
-        lines[(pid, ids)] = lines.get((pid, ids), 0) + qty
+    order_ids = d.get("order_ids")
+    lines = None if order_ids else normalize_lines(d.get("items"))
 
     with db(write=True) as c:
         if request_id:
@@ -1046,28 +1335,13 @@ def r_sale_add(req):
         if not shift:
             raise ApiError(409, "Kasir belum dibuka. Buka kasir dulu dan isi uang awal laci.")
         settings = get_settings(c)
-        prepared, need, products = [], {}, {}
-        for (pid, opt_ids), qty in lines.items():
-            p = products.get(pid) or c.execute("SELECT * FROM products WHERE id=? AND active=1", (pid,)).fetchone()
-            if not p:
-                raise ApiError(404, f"Menu {pid} tidak ditemukan.")
-            products[pid] = p
-            if p["price"] is None:
-                raise ApiError(409, f"Harga {p['name']} belum diisi.")
-            if not p["available"]:
-                raise ApiError(409, f"{p['name']} sedang habis.")
-            if not p["stock_tracked"] and REQUIRE_STOCK:
-                raise ApiError(409, f"Stok {p['name']} belum dilacak; hitung stok fisik dulu.")
-            delta, summary, var_lines = resolve_item_variants(c, p, opt_ids)
-            need[pid] = need.get(pid, 0) + qty
-            prepared.append((p, qty, p["price"] + delta, summary, var_lines))
-        for pid, qty in need.items():
-            p = products[pid]
-            if p["stock_tracked"]:
-                if p["stock_on_hand"] is None:
-                    raise ApiError(409, f"Stok {p['name']} terlacak tetapi angkanya kosong; hitung stok fisik dulu.")
-                if p["stock_on_hand"] < qty:
-                    raise ApiError(409, f"Stok {p['name']} tidak cukup (sisa {p['stock_on_hand']}).")
+        orders = []
+        if order_ids:
+            orders, prepared, need, products = lines_from_orders(c, order_ids)
+            table_no = orders[0]["table_label"]
+            order_type = "dine_in"
+        else:
+            prepared, need, products = price_lines(c, lines)
         subtotal = sum(unit * qty for _, qty, unit, _, _ in prepared)
         discount, reason = compute_discount(d.get("discount"), subtotal, user, settings)
         service, tax, rounding, total = compute_totals(subtotal, discount, settings)
@@ -1085,10 +1359,11 @@ def r_sale_add(req):
             sale_id = f"KS{today[2:4]}{today[5:7]}{today[8:10]}-{seq:03d}"
         c.execute("""INSERT INTO sales(id,created_at,total_amount,payment_method,status,note,business_date,request_id,
                        subtotal,discount_amount,discount_reason,service_amount,tax_amount,rounding_amount,
-                       amount_paid,change_amount,order_type,table_no,user_id,shift_id)
-                     VALUES(?,?,?,?,'paid',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       amount_paid,change_amount,order_type,table_no,user_id,shift_id,order_ids)
+                     VALUES(?,?,?,?,'paid',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                   (sale_id, stamp, total, method, note, today, request_id or None, subtotal, discount, reason,
-                   service, tax, rounding, paid, paid - total, order_type, table_no, user["id"], shift["id"]))
+                   service, tax, rounding, paid, paid - total, order_type, table_no, user["id"], shift["id"],
+                   ",".join(o["id"] for o in orders)))
         for p, qty, unit, summary, var_lines in prepared:
             cur = c.execute("""INSERT INTO sale_items(sale_id,product_id,name_snapshot,variant_snapshot,unit_price,
                                  quantity,line_total,modifiers_summary,cost_snapshot) VALUES(?,?,?,?,?,?,?,?,?)""",
@@ -1103,6 +1378,11 @@ def r_sale_add(req):
                 c.execute("UPDATE products SET stock_on_hand=?,updated_at=? WHERE id=?", (left, stamp, pid))
                 c.execute("INSERT INTO stock_movements(product_id,movement_type,quantity_change,resulting_quantity,note,created_at) VALUES(?,?,?,?,?,?)",
                           (pid, "sale", -qty, left, sale_id, stamp))
+        for o in orders:
+            c.execute("UPDATE orders SET status='paid',sale_id=?,updated_at=?,handled_by=? WHERE id=?",
+                      (sale_id, stamp, user["name"], o["id"]))
+        if orders:
+            audit(c, user, "bayar_pesanan_meja", f"{sale_id} ← {','.join(o['id'] for o in orders)}")
         return Resp(201, {"item": sale_detail(c, sale_id)})
 
 
@@ -1336,20 +1616,315 @@ def r_audit(req):
 
 @route("GET", r"/api/admin/backup", "owner")
 def r_backup(req):
+    """Cadangan = berkas .zip berisi database (salinan konsisten) + foto unggahan."""
+    import zipfile
     stamp = datetime.now(TZ).strftime("%Y%m%d-%H%M")
     with tempfile.TemporaryDirectory() as tmp:
-        target = Path(tmp) / "backup.sqlite3"
+        target = Path(tmp) / "kopi-sawah.sqlite3"
         src = sqlite3.connect(DB_PATH)
         dst = sqlite3.connect(target)
         try:
             src.backup(dst)
         finally:
             dst.close(); src.close()
-        data = target.read_bytes()
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(target, "kopi-sawah.sqlite3")
+            if UPLOAD_DIR.is_dir():
+                for f in sorted(UPLOAD_DIR.glob("up-*.jpg")):
+                    z.write(f, f"uploads/{f.name}")
+        data = buf.getvalue()
     with db(write=True) as c:
         audit(c, req.user, "unduh_cadangan")
-    return Resp(200, body=data, content_type="application/octet-stream",
-                headers=[("Content-Disposition", f'attachment; filename="kopi-sawah-cadangan-{stamp}.sqlite3"')])
+    return Resp(200, body=data, content_type="application/zip",
+                headers=[("Content-Disposition", f'attachment; filename="kopi-sawah-cadangan-{stamp}.zip"')])
+
+
+# --------------------------------------------------------------------------- meja, QR & pesanan pelanggan
+_rl = {}
+_rl_lock = threading.Lock()
+
+
+def rate_limit(key, limit, window, message="Terlalu sering. Tunggu sebentar lalu coba lagi."):
+    t = time.time()
+    with _rl_lock:
+        hits = [x for x in _rl.get(key, []) if t - x < window]
+        if len(hits) >= limit:
+            _rl[key] = hits
+            raise ApiError(429, message)
+        hits.append(t)
+        _rl[key] = hits
+        if len(_rl) > 5000:
+            for k in [k for k, v in _rl.items() if not v or t - v[-1] > 3600]:
+                _rl.pop(k, None)
+
+
+def table_by_token(c, token):
+    t = c.execute("SELECT * FROM dining_tables WHERE token=? AND active=1", (str(token or ""),)).fetchone()
+    if not t:
+        raise ApiError(404, "Kode meja tidak dikenal. Minta bantuan pelayan.")
+    return t
+
+
+def new_token(c):
+    while True:
+        tok = secrets.token_urlsafe(8)
+        if not c.execute("SELECT 1 FROM dining_tables WHERE token=?", (tok,)).fetchone():
+            return tok
+
+
+def group_map(c):
+    """Semua kelompok pilihan aktif beserta pilihannya, sekali baca (menu publik memuat ratusan menu)."""
+    groups = {g["id"]: dict(g, options=[]) for g in rows(c, "SELECT * FROM modifier_groups WHERE active=1 ORDER BY sort,name")}
+    for o in rows(c, "SELECT * FROM modifiers WHERE active=1 ORDER BY sort,id"):
+        if o["group_id"] in groups:
+            groups[o["group_id"]]["options"].append(o)
+    by_cat, by_prod = {}, {}
+    for r in c.execute("SELECT category,group_id FROM category_modifier_groups ORDER BY sort,rowid"):
+        by_cat.setdefault(r["category"], []).append(r["group_id"])
+    for r in c.execute("SELECT product_id,group_id FROM product_modifier_groups ORDER BY sort"):
+        by_prod.setdefault(r["product_id"], []).append(r["group_id"])
+    return groups, by_cat, by_prod
+
+
+@route("GET", r"/api/public/menu", "public")
+def r_public_menu(req):
+    with db() as c:
+        table = table_by_token(c, req.arg("t"))
+        groups, by_cat, by_prod = group_map(c)
+        items = []
+        for p in rows(c, """SELECT id,name,category,variant,price,description,featured,image_key,available,
+                            stock_tracked,stock_on_hand,custom_modifiers FROM products
+                            WHERE active=1 AND price IS NOT NULL"""):
+            ids = by_prod.get(p["id"], []) if p["custom_modifiers"] else by_cat.get(p["category"], [])
+            gs = [groups[g] for g in ids if g in groups and groups[g]["options"]]
+            sold_out = (not p["available"]) or (p["stock_tracked"] and p["stock_on_hand"] is not None and p["stock_on_hand"] <= 0)
+            items.append({"id": p["id"], "name": p["name"], "category": p["category"], "variant": p["variant"],
+                          "price": p["price"], "description": p["description"], "featured": p["featured"],
+                          "image_key": clean_image(p["image_key"]), "sold_out": bool(sold_out),
+                          "groups": [{"id": g["id"], "name": g["name"], "min_select": g["min_select"],
+                                      "max_select": g["max_select"],
+                                      "options": [{"id": o["id"], "name": o["name"], "price_delta": o["price_delta"]} for o in g["options"]]}
+                                     for g in gs]})
+        st = get_settings(c)
+    rank = {k: i for i, k in enumerate(CATEGORY_ORDER)}
+    items.sort(key=lambda x: (rank.get(x["category"], 99), x["category"], -x["featured"], x["name"].lower(), x["variant"]))
+    return {"table": {"label": table["label"]}, "items": items,
+            "settings": {k: st[k] for k in ("outlet_name", "outlet_address", "outlet_contact", "tax_percent", "service_percent", "rounding")}}
+
+
+def order_detail(c, oid):
+    o = c.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+    if not o:
+        return None
+    d = row_dict(o)
+    d["status_name"] = ORDER_STATUS_NAME.get(d["status"], d["status"])
+    d["items"] = rows(c, "SELECT id,product_id,name_snapshot,variant_snapshot,unit_price,quantity,line_total,modifiers_summary FROM order_items WHERE order_id=? ORDER BY id", (oid,))
+    return d
+
+
+@route("POST", r"/api/public/orders", "public")
+def r_public_order(req):
+    d = req.data
+    lines = normalize_lines(d.get("items"))
+    if len(lines) > 30 or any(q > 20 for q in lines.values()):
+        raise ApiError(400, "Pesanan terlalu besar. Maksimal 30 baris dan 20 porsi per menu; hubungi pelayan untuk jumlah besar.")
+    name = str(d.get("customer_name", "")).strip()[:30]
+    note = str(d.get("note", "")).strip()[:200]
+    raw = d.get("request_id")
+    request_id = str(raw).strip() if raw else ""
+    if request_id and not re.fullmatch(r"[A-Za-z0-9._:-]{6,64}", request_id):
+        raise ApiError(400, "Kunci permintaan tidak valid.")
+    with db(write=True) as c:
+        table = table_by_token(c, d.get("t"))
+        if request_id:
+            dup = c.execute("SELECT id FROM orders WHERE request_id=? AND table_id=?", (request_id, table["id"])).fetchone()
+            if dup:
+                return {"order": order_detail(c, dup["id"]), "duplicate": True}
+        rate_limit(f"ord:ip:{req.ip}", 8, 600, "Terlalu banyak pesanan dari perangkat ini. Tunggu beberapa menit atau panggil pelayan.")
+        rate_limit(f"ord:table:{table['id']}", 15, 600, "Meja ini sedang ramai memesan. Tunggu sebentar atau panggil pelayan.")
+        open_n = c.execute("SELECT COUNT(*) FROM orders WHERE table_id=? AND status='pending'", (table["id"],)).fetchone()[0]
+        if open_n >= 5:
+            raise ApiError(429, "Masih ada pesanan yang menunggu konfirmasi kasir. Mohon tunggu atau panggil pelayan.")
+        prepared, need, products = price_lines(c, lines)
+        subtotal = sum(unit * qty for _, qty, unit, _, _ in prepared)
+        if subtotal > 3_000_000:
+            raise ApiError(400, "Total pesanan terlalu besar untuk dikirim lewat QR. Hubungi pelayan.")
+        stamp, today = now(), business_date()
+        seq = c.execute("SELECT COUNT(*) FROM orders WHERE business_date=?", (today,)).fetchone()[0] + 1
+        oid = f"PM{today[2:4]}{today[5:7]}{today[8:10]}-{seq:03d}"
+        while c.execute("SELECT 1 FROM orders WHERE id=?", (oid,)).fetchone():
+            seq += 1
+            oid = f"PM{today[2:4]}{today[5:7]}{today[8:10]}-{seq:03d}"
+        c.execute("""INSERT INTO orders(id,table_id,table_label,status,customer_name,note,subtotal,request_id,created_at,updated_at,business_date)
+                     VALUES(?,?,?,'pending',?,?,?,?,?,?,?)""",
+                  (oid, table["id"], table["label"], name, note, subtotal, request_id or None, stamp, stamp, today))
+        for p, qty, unit, summary, var_lines in prepared:
+            c.execute("""INSERT INTO order_items(order_id,product_id,name_snapshot,variant_snapshot,unit_price,quantity,
+                           line_total,modifiers_summary,modifiers_json) VALUES(?,?,?,?,?,?,?,?,?)""",
+                      (oid, p["id"], p["name"], p["variant"], unit, qty, unit * qty, summary, json.dumps(var_lines, ensure_ascii=False)))
+        return Resp(201, {"order": order_detail(c, oid)})
+
+
+@route("GET", r"/api/public/orders", "public")
+def r_public_orders(req):
+    ids = [x for x in req.arg("ids").split(",") if re.fullmatch(r"PM\d{6}-\d{3,}", x)][:20]
+    with db() as c:
+        table = table_by_token(c, req.arg("t"))
+        out = []
+        for oid in ids:
+            o = order_detail(c, oid)
+            if o and o["table_id"] == table["id"]:
+                o.pop("handled_by", None); o.pop("request_id", None)
+                out.append(o)
+        calls = rows(c, "SELECT kind,created_at FROM table_calls WHERE table_id=? AND handled_at IS NULL", (table["id"],))
+    return {"orders": out, "calls": calls}
+
+
+@route("POST", r"/api/public/orders/(PM\d{6}-\d{3,})/cancel", "public")
+def r_public_order_cancel(req):
+    with db(write=True) as c:
+        table = table_by_token(c, req.data.get("t"))
+        o = c.execute("SELECT * FROM orders WHERE id=? AND table_id=?", (req.match.group(1), table["id"])).fetchone()
+        if not o:
+            raise ApiError(404, "Pesanan tidak ditemukan.")
+        if o["status"] != "pending":
+            raise ApiError(409, "Pesanan sudah diterima kasir dan tidak bisa dibatalkan sendiri. Hubungi pelayan.")
+        c.execute("UPDATE orders SET status='cancelled',reason='Dibatalkan pelanggan',updated_at=? WHERE id=?", (now(), o["id"]))
+        return {"order": order_detail(c, o["id"])}
+
+
+@route("POST", r"/api/public/call", "public")
+def r_public_call(req):
+    kind = req.data.get("kind")
+    if kind not in ("waiter", "bill"):
+        raise ApiError(400, "Jenis panggilan tidak dikenal.")
+    with db(write=True) as c:
+        table = table_by_token(c, req.data.get("t"))
+        rate_limit(f"call:{table['id']}:{kind}", 1, 60, "Panggilan sudah dikirim. Mohon tunggu sebentar.")
+        rate_limit(f"call:ip:{req.ip}", 6, 600)
+        if not c.execute("SELECT 1 FROM table_calls WHERE table_id=? AND kind=? AND handled_at IS NULL", (table["id"], kind)).fetchone():
+            c.execute("INSERT INTO table_calls(table_id,table_label,kind,created_at) VALUES(?,?,?,?)",
+                      (table["id"], table["label"], kind, now()))
+    return {"ok": True}
+
+
+# ---- sisi kasir/pemilik
+@route("GET", r"/api/tables")
+def r_tables(req):
+    with db() as c:
+        tables = rows(c, "SELECT id,label,token,active,created_at FROM dining_tables ORDER BY active DESC, LENGTH(label), label")
+        if not is_owner(req):
+            for t in tables:
+                t.pop("token", None)
+    return {"items": tables}
+
+
+@route("POST", r"/api/tables", "owner")
+def r_table_add(req):
+    d = req.data
+    with db(write=True) as c:
+        labels = []
+        if d.get("count") is not None:
+            n = to_int(d["count"], "Jumlah meja", 1, 60)
+            prefix = str(d.get("prefix", "Meja")).strip()[:20] or "Meja"
+            start = to_int(d.get("start", 1), "Nomor awal", 1, 999)
+            labels = [f"{prefix} {start + i}" for i in range(n)]
+        else:
+            label = str(d.get("label", "")).strip()[:30]
+            if not label:
+                raise ApiError(400, "Nama meja wajib diisi.")
+            labels = [label]
+        made = []
+        for label in labels:
+            if c.execute("SELECT 1 FROM dining_tables WHERE label=?", (label,)).fetchone():
+                continue
+            c.execute("INSERT INTO dining_tables(label,token,active,created_at) VALUES(?,?,1,?)", (label, new_token(c), now()))
+            made.append(label)
+        if not made:
+            raise ApiError(409, "Nama meja itu sudah ada.")
+        audit(c, req.user, "tambah_meja", ", ".join(made))
+        return Resp(201, {"made": made})
+
+
+@route("PUT", r"/api/tables/(\d+)", "owner")
+def r_table_edit(req):
+    tid, d = int(req.match.group(1)), req.data
+    with db(write=True) as c:
+        t = c.execute("SELECT * FROM dining_tables WHERE id=?", (tid,)).fetchone()
+        if not t:
+            raise ApiError(404, "Meja tidak ditemukan.")
+        label = str(d.get("label", t["label"])).strip()[:30]
+        if not label:
+            raise ApiError(400, "Nama meja wajib diisi.")
+        active = (1 if d["active"] else 0) if "active" in d else t["active"]
+        try:
+            c.execute("UPDATE dining_tables SET label=?,active=? WHERE id=?", (label, active, tid))
+        except sqlite3.IntegrityError:
+            raise ApiError(409, "Nama meja itu sudah ada.")
+        audit(c, req.user, "ubah_meja", f"{t['label']} → {label}, aktif={active}")
+    return {"ok": True}
+
+
+@route("POST", r"/api/tables/(\d+)/rotate", "owner")
+def r_table_rotate(req):
+    """Ganti kode QR sebuah meja (mis. bila fotonya tersebar). QR lama langsung tidak berlaku."""
+    tid = int(req.match.group(1))
+    with db(write=True) as c:
+        t = c.execute("SELECT label FROM dining_tables WHERE id=?", (tid,)).fetchone()
+        if not t:
+            raise ApiError(404, "Meja tidak ditemukan.")
+        tok = new_token(c)
+        c.execute("UPDATE dining_tables SET token=? WHERE id=?", (tok, tid))
+        audit(c, req.user, "ganti_kode_qr", t["label"])
+    return {"token": tok}
+
+
+@route("GET", r"/api/orders/summary")
+def r_orders_summary(req):
+    with db() as c:
+        pend = c.execute("SELECT COUNT(*), MAX(id) FROM orders WHERE status='pending'").fetchone()
+        calls = c.execute("SELECT COUNT(*), MAX(id) FROM table_calls WHERE handled_at IS NULL").fetchone()
+        active = c.execute("SELECT COUNT(*) FROM orders WHERE status IN ('accepted','ready','served')").fetchone()[0]
+    return {"pending": pend[0], "latest_pending": pend[1], "calls": calls[0], "latest_call": calls[1], "active": active}
+
+
+@route("GET", r"/api/orders")
+def r_orders(req):
+    with db() as c:
+        orders = [order_detail(c, r["id"]) for r in c.execute(
+            "SELECT id FROM orders WHERE status IN ('pending','accepted','ready','served') ORDER BY created_at").fetchall()]
+        calls = rows(c, "SELECT id,table_id,table_label,kind,created_at FROM table_calls WHERE handled_at IS NULL ORDER BY id")
+    return {"orders": orders, "calls": calls, "status_names": ORDER_STATUS_NAME}
+
+
+@route("POST", r"/api/orders/(PM\d{6}-\d{3,})/status")
+def r_order_status(req):
+    oid, d = req.match.group(1), req.data
+    target = d.get("status")
+    reason = str(d.get("reason", "")).strip()[:160]
+    with db(write=True) as c:
+        o = c.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+        if not o:
+            raise ApiError(404, "Pesanan tidak ditemukan.")
+        if target not in ORDER_NEXT.get(o["status"], ()):
+            raise ApiError(409, f"Pesanan berstatus “{ORDER_STATUS_NAME.get(o['status'], o['status'])}”; tidak bisa diubah ke “{ORDER_STATUS_NAME.get(target, target)}”.")
+        if target in ("rejected", "cancelled") and not reason:
+            raise ApiError(400, "Isi alasan agar pelanggan tahu kenapa pesanannya tidak diproses.")
+        if target == "cancelled" and o["status"] == "served" and req.user["role"] != "owner":
+            raise ApiError(403, "Pesanan yang sudah disajikan hanya bisa dibatalkan pemilik.")
+        c.execute("UPDATE orders SET status=?,reason=?,handled_by=?,updated_at=? WHERE id=?",
+                  (target, reason, req.user["name"], now(), oid))
+        audit(c, req.user, "status_pesanan_meja", f"{oid} {o['status']}→{target}" + (f" ({reason})" if reason else ""))
+        return {"order": order_detail(c, oid)}
+
+
+@route("POST", r"/api/calls/(\d+)/done")
+def r_call_done(req):
+    with db(write=True) as c:
+        c.execute("UPDATE table_calls SET handled_at=?,handled_by=? WHERE id=? AND handled_at IS NULL",
+                  (now(), req.user["name"], int(req.match.group(1))))
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- HTTP
@@ -1414,11 +1989,19 @@ class Handler(BaseHTTPRequestHandler):
         return bool(host) and p.scheme.lower() == scheme and p.netloc.lower() == host and p.path in ("", "/") and not p.query and not p.fragment
 
     def serve_static(self, path):
-        rel = "index.html" if path in ("/", "/index.html") else path.removeprefix("/static/") if path.startswith("/static/") else None
-        if rel is None:
+        base = STATIC
+        if path in ("/", "/index.html"):
+            rel = "index.html"
+        elif re.fullmatch(r"/m/[A-Za-z0-9_-]{4,40}", path):
+            rel = "order.html"          # halaman pesan lewat QR meja; kode meja dicek oleh API
+        elif path.startswith("/static/"):
+            rel = path.removeprefix("/static/")
+        elif re.fullmatch(r"/media/up-[0-9a-f]{12}\.jpg", path):
+            base, rel = UPLOAD_DIR, path.removeprefix("/media/")
+        else:
             return self.send_json(404, {"error": "Rute tidak ditemukan."})
-        candidate = (STATIC / rel).resolve()
-        if STATIC.resolve() not in candidate.parents or not candidate.is_file():
+        candidate = (base / rel).resolve()
+        if base.resolve() not in candidate.parents or not candidate.is_file():
             return self.send_json(404, {"error": "Berkas tidak ditemukan."})
         data = candidate.read_bytes()
         mime = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"

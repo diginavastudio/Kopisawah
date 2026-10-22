@@ -1,1242 +1,1375 @@
 [
-  {
-    "id": 1,
-    "name": "Nasi Goreng Original",
-    "category": "Makanan",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 2,
-    "name": "Nasi Goreng Kopi Sawah",
-    "category": "Makanan",
-    "price": 27000,
-    "variant": "Ayam suwir, telur, sosis",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 3,
-    "name": "Nasi Goreng Seafood",
-    "category": "Makanan",
-    "price": 27000,
-    "variant": "Udang, cumi, telur",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 4,
-    "name": "Bakmi Goreng",
-    "category": "Makanan",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 5,
-    "name": "Bakmi Godog",
-    "category": "Makanan",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 6,
-    "name": "Nasi Telur Spesial",
-    "category": "Makanan",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 7,
-    "name": "Ayam Goreng",
-    "category": "Lauk",
-    "price": 25000,
-    "variant": "",
-    "stock": null,
-    "image_key": "ayam-goreng",
-    "draft": true
-  },
-  {
-    "id": 8,
-    "name": "Chicken Katsu Original",
-    "category": "Lauk",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "ayam-goreng",
-    "draft": true
-  },
-  {
-    "id": 9,
-    "name": "Udang Krispy",
-    "category": "Lauk",
-    "price": 29000,
-    "variant": "",
-    "stock": null,
-    "image_key": "seafood-udang",
-    "draft": true
-  },
-  {
-    "id": 10,
-    "name": "Lele Goreng",
-    "category": "Lauk",
-    "price": 18000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-lele",
-    "draft": true
-  },
-  {
-    "id": 11,
-    "name": "Nila Goreng",
-    "category": "Lauk",
-    "price": 23000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-nila",
-    "draft": true
-  },
-  {
-    "id": 12,
-    "name": "Sop Sawah",
-    "category": "Sup",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "sop-sawah",
-    "draft": true
-  },
-  {
-    "id": 13,
-    "name": "Capcay",
-    "category": "Sayuran",
-    "price": 18000,
-    "variant": "Goreng / Godog",
-    "stock": null,
-    "image_key": "sop-sawah",
-    "draft": true
-  },
-  {
-    "id": 14,
-    "name": "Mendoan",
-    "category": "Camilan",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 15,
-    "name": "Kentang Goreng",
-    "category": "Camilan",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 16,
-    "name": "Kopi Tubruk",
-    "category": "Kopi",
-    "price": 10000,
-    "variant": "Temanggung / Merapi",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 17,
-    "name": "Coffee Latte",
-    "category": "Kopi",
-    "price": 16000,
-    "variant": "Es / Panas",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 18,
-    "name": "Es Kopi Susu",
-    "category": "Kopi",
-    "price": 15000,
-    "variant": "Original",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 19,
-    "name": "Es Kopi Susu Gula Aren / Hazelnut",
-    "category": "Kopi",
-    "price": 18000,
-    "variant": "",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 20,
-    "name": "Americano",
-    "category": "Kopi",
-    "price": 15000,
-    "variant": "Es / Panas",
-    "stock": null,
-    "image_key": "coffee-ice-americano",
-    "draft": true
-  },
-  {
-    "id": 21,
-    "name": "Espresso",
-    "category": "Kopi",
-    "price": 16000,
-    "variant": "",
-    "stock": null,
-    "image_key": "coffee-long-black",
-    "draft": true
-  },
-  {
-    "id": 22,
-    "name": "Cappucino",
-    "category": "Kopi",
-    "price": 16000,
-    "variant": "Es",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 23,
-    "name": "Cappucino",
-    "category": "Kopi",
-    "price": 20000,
-    "variant": "Panas",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 24,
-    "name": "Moccacino",
-    "category": "Kopi",
-    "price": 16000,
-    "variant": "Es",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 25,
-    "name": "Moccacino",
-    "category": "Kopi",
-    "price": 20000,
-    "variant": "Panas",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 26,
-    "name": "Chocolate",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "Es",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 27,
-    "name": "Chocolate",
-    "category": "Minuman",
-    "price": 17000,
-    "variant": "Panas",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 28,
-    "name": "Jus Tomat",
-    "category": "Minuman",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-green",
-    "draft": true
-  },
-  {
-    "id": 29,
-    "name": "Jus Mangga",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-green",
-    "draft": true
-  },
-  {
-    "id": 30,
-    "name": "Air Mineral 600 ml",
-    "category": "Minuman",
-    "price": 5000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 31,
-    "name": "Nasi Bocil",
-    "category": "Makanan",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 32,
-    "name": "Nasi Belut",
-    "category": "Makanan",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-lele",
-    "draft": true
-  },
-  {
-    "id": 33,
-    "name": "Kwetiau Goreng",
-    "category": "Makanan",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 34,
-    "name": "Kwetiau Godog",
-    "category": "Makanan",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 35,
-    "name": "Ayam Bakar",
-    "category": "Lauk",
-    "price": 27000,
-    "variant": "",
-    "stock": null,
-    "image_key": "ayam-bakar",
-    "draft": true
-  },
-  {
-    "id": 36,
-    "name": "Ayam Kampung Goreng",
-    "category": "Lauk",
-    "price": 27000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-kampung",
-    "draft": true
-  },
-  {
-    "id": 37,
-    "name": "Ayam Kampung Bakar",
-    "category": "Lauk",
-    "price": 29000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-kampung",
-    "draft": true
-  },
-  {
-    "id": 38,
-    "name": "Chicken Katsu Saos Tiram",
-    "category": "Lauk",
-    "price": 25000,
-    "variant": "",
-    "stock": null,
-    "image_key": "ayam-goreng",
-    "draft": true
-  },
-  {
-    "id": 39,
-    "name": "Chicken Katsu Saos Lada Hitam",
-    "category": "Lauk",
-    "price": 25000,
-    "variant": "",
-    "stock": null,
-    "image_key": "ayam-goreng",
-    "draft": true
-  },
-  {
-    "id": 40,
-    "name": "Chicken Katsu BBQ",
-    "category": "Lauk",
-    "price": 25000,
-    "variant": "",
-    "stock": null,
-    "image_key": "ayam-goreng",
-    "draft": true
-  },
-  {
-    "id": 41,
-    "name": "Chicken Karage Saos Tiram",
-    "category": "Lauk",
-    "price": 25000,
-    "variant": "",
-    "stock": null,
-    "image_key": "ayam-goreng",
-    "draft": true
-  },
-  {
-    "id": 42,
-    "name": "Chicken Karage Saos Lada Hitam",
-    "category": "Lauk",
-    "price": 25000,
-    "variant": "",
-    "stock": null,
-    "image_key": "ayam-goreng",
-    "draft": true
-  },
-  {
-    "id": 43,
-    "name": "Chicken Karage BBQ",
-    "category": "Lauk",
-    "price": 25000,
-    "variant": "",
-    "stock": null,
-    "image_key": "ayam-goreng",
-    "draft": true
-  },
-  {
-    "id": 44,
-    "name": "Udang Saos Lada Hitam",
-    "category": "Lauk",
-    "price": 29000,
-    "variant": "",
-    "stock": null,
-    "image_key": "seafood-udang",
-    "draft": true
-  },
-  {
-    "id": 45,
-    "name": "Udang Saos Tiram",
-    "category": "Lauk",
-    "price": 29000,
-    "variant": "",
-    "stock": null,
-    "image_key": "seafood-udang",
-    "draft": true
-  },
-  {
-    "id": 46,
-    "name": "Udang Saos BBQ",
-    "category": "Lauk",
-    "price": 29000,
-    "variant": "",
-    "stock": null,
-    "image_key": "seafood-udang",
-    "draft": true
-  },
-  {
-    "id": 47,
-    "name": "Cumi Krispy",
-    "category": "Lauk",
-    "price": 29000,
-    "variant": "",
-    "stock": null,
-    "image_key": "seafood-cumi",
-    "draft": true
-  },
-  {
-    "id": 48,
-    "name": "Cumi Saos Lada Hitam",
-    "category": "Lauk",
-    "price": 29000,
-    "variant": "",
-    "stock": null,
-    "image_key": "seafood-cumi",
-    "draft": true
-  },
-  {
-    "id": 49,
-    "name": "Cumi Saos Tiram",
-    "category": "Lauk",
-    "price": 29000,
-    "variant": "",
-    "stock": null,
-    "image_key": "seafood-cumi",
-    "draft": true
-  },
-  {
-    "id": 50,
-    "name": "Cumi Saos BBQ",
-    "category": "Lauk",
-    "price": 29000,
-    "variant": "",
-    "stock": null,
-    "image_key": "seafood-cumi",
-    "draft": true
-  },
-  {
-    "id": 51,
-    "name": "Lele Bakar",
-    "category": "Lauk",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-lele",
-    "draft": true
-  },
-  {
-    "id": 52,
-    "name": "Nila Krispy",
-    "category": "Lauk",
-    "price": 25000,
-    "variant": "Tanpa tulang",
-    "stock": null,
-    "image_key": "paket-nila",
-    "draft": true
-  },
-  {
-    "id": 53,
-    "name": "Nila Bakar",
-    "category": "Lauk",
-    "price": 25000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-nila",
-    "draft": true
-  },
-  {
-    "id": 54,
-    "name": "Nila Masak Pedas",
-    "category": "Lauk",
-    "price": 27000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-nila",
-    "draft": true
-  },
-  {
-    "id": 55,
-    "name": "Tom Yum",
-    "category": "Sup",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "tom-yum",
-    "draft": true
-  },
-  {
-    "id": 56,
-    "name": "Paklay",
-    "category": "Sayuran",
-    "price": 17000,
-    "variant": "Goreng / Godog",
-    "stock": null,
-    "image_key": "sop-sawah",
-    "draft": true
-  },
-  {
-    "id": 57,
-    "name": "Cah Kangkung",
-    "category": "Sayuran",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "sop-sawah",
-    "draft": true
-  },
-  {
-    "id": 58,
-    "name": "Terong Krispy",
-    "category": "Sayuran",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "sop-sawah",
-    "draft": true
-  },
-  {
-    "id": 59,
-    "name": "Sosis",
-    "category": "Camilan",
-    "price": 10000,
-    "variant": "Goreng / Bakar",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 60,
-    "name": "Pisang",
-    "category": "Camilan",
-    "price": 12000,
-    "variant": "Goreng / Bakar",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 61,
-    "name": "Pisang Pasir Coklat",
-    "category": "Camilan",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 62,
-    "name": "Singkong Goreng Keju",
-    "category": "Camilan",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 63,
-    "name": "Tahu Goreng",
-    "category": "Camilan",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 64,
-    "name": "Tahu Cabe Garam",
-    "category": "Camilan",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 65,
-    "name": "Tahu Bakso",
-    "category": "Camilan",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 66,
-    "name": "Bakwan",
-    "category": "Camilan",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 67,
-    "name": "Roti Bakar",
-    "category": "Camilan",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 68,
-    "name": "Gemblong Cotot",
-    "category": "Camilan",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 69,
-    "name": "Cireng",
-    "category": "Camilan",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 70,
-    "name": "Tempe Tanpa Tepung",
-    "category": "Camilan",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "snack",
-    "draft": true
-  },
-  {
-    "id": 71,
-    "name": "Nasi Putih",
-    "category": "Add-on",
-    "price": 5000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 72,
-    "name": "Sambal Terasi",
-    "category": "Add-on",
-    "price": 4000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-lele",
-    "draft": true
-  },
-  {
-    "id": 73,
-    "name": "Sambal Bawang",
-    "category": "Add-on",
-    "price": 4000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-lele",
-    "draft": true
-  },
-  {
-    "id": 74,
-    "name": "Telur Goreng",
-    "category": "Add-on",
-    "price": 5000,
-    "variant": "",
-    "stock": null,
-    "image_key": "paket-lele",
-    "draft": true
-  },
-  {
-    "id": 75,
-    "name": "Paket Lele",
-    "category": "Paket",
-    "price": 25000,
-    "variant": "Lele goreng, nasi, sambal, lalapan, teh panas / es",
-    "stock": null,
-    "image_key": "paket-lele",
-    "draft": true
-  },
-  {
-    "id": 76,
-    "name": "Paket Nila",
-    "category": "Paket",
-    "price": 30000,
-    "variant": "Nila goreng, nasi, sambal, lalapan, teh panas / es",
-    "stock": null,
-    "image_key": "paket-nila",
-    "draft": true
-  },
-  {
-    "id": 77,
-    "name": "Paket Ayam",
-    "category": "Paket",
-    "price": 30000,
-    "variant": "Ayam goreng, nasi, sambal, lalapan, teh panas / es",
-    "stock": null,
-    "image_key": "paket-ayam",
-    "draft": true
-  },
-  {
-    "id": 78,
-    "name": "Paket Ayam Kampung",
-    "category": "Paket",
-    "price": 35000,
-    "variant": "Ayam kampung goreng, nasi, sambal, lalapan, teh panas / es",
-    "stock": null,
-    "image_key": "paket-kampung",
-    "draft": true
-  },
-  {
-    "id": 79,
-    "name": "Wedang Jahe",
-    "category": "Wedangan",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-jahe-sereh",
-    "draft": true
-  },
-  {
-    "id": 80,
-    "name": "Wedang Teh Jahe",
-    "category": "Wedangan",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-jahe-sereh",
-    "draft": true
-  },
-  {
-    "id": 81,
-    "name": "Wedang Susu Jahe",
-    "category": "Wedangan",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-susu-jahe",
-    "draft": true
-  },
-  {
-    "id": 82,
-    "name": "Wedang Jahe Sereh Jeruk",
-    "category": "Wedangan",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-jahe-sereh",
-    "draft": true
-  },
-  {
-    "id": 83,
-    "name": "Wedang Teh",
-    "category": "Wedangan",
-    "price": 6000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-lemon-tea",
-    "draft": true
-  },
-  {
-    "id": 84,
-    "name": "Wedang Teh Lemon",
-    "category": "Wedangan",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-lemon-tea",
-    "draft": true
-  },
-  {
-    "id": 85,
-    "name": "Wedang Teh Teko",
-    "category": "Wedangan",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-lemon-tea",
-    "draft": true
-  },
-  {
-    "id": 86,
-    "name": "Wedang Jeruk",
-    "category": "Wedangan",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-lemon-tea",
-    "draft": true
-  },
-  {
-    "id": 87,
-    "name": "Wedang Jeruk Nipis",
-    "category": "Wedangan",
-    "price": 7000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-lemon-tea",
-    "draft": true
-  },
-  {
-    "id": 88,
-    "name": "Wedang Tape",
-    "category": "Wedangan",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-lemon-tea",
-    "draft": true
-  },
-  {
-    "id": 89,
-    "name": "Wedang Uwuh",
-    "category": "Wedangan",
-    "price": 9000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-uwuh",
-    "draft": true
-  },
-  {
-    "id": 90,
-    "name": "Wedang Coklat",
-    "category": "Wedangan",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-lemon-tea",
-    "draft": true
-  },
-  {
-    "id": 91,
-    "name": "Wedang Susu",
-    "category": "Wedangan",
-    "price": 8000,
-    "variant": "Putih / Coklat",
-    "stock": null,
-    "image_key": "wedang-lemon-tea",
-    "draft": true
-  },
-  {
-    "id": 92,
-    "name": "Es Teh",
-    "category": "Minuman",
-    "price": 6000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 93,
-    "name": "Teh Krampul",
-    "category": "Minuman",
-    "price": 7000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 94,
-    "name": "Lemon Tea",
-    "category": "Minuman",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 95,
-    "name": "Soda Ceria",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 96,
-    "name": "Kunir Asem",
-    "category": "Minuman",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 97,
-    "name": "Beras Kencur",
-    "category": "Minuman",
-    "price": 8000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 98,
-    "name": "Es Campur",
-    "category": "Minuman",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 99,
-    "name": "Lychee Tea",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-lychee",
-    "draft": true
-  },
-  {
-    "id": 100,
-    "name": "Es Teh Telang",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 101,
-    "name": "Es Lemon Telang",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 102,
-    "name": "Chocolate Strawberry Ice",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-dragonfruit",
-    "draft": true
-  },
-  {
-    "id": 103,
-    "name": "Vietnam Drip",
-    "category": "Kopi",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "coffee-cappucino",
-    "draft": true
-  },
-  {
-    "id": 104,
-    "name": "V60",
-    "category": "Kopi",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "coffee-v60",
-    "draft": true
-  },
-  {
-    "id": 105,
-    "name": "Jus Wortel",
-    "category": "Minuman",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-green",
-    "draft": true
-  },
-  {
-    "id": 106,
-    "name": "Jus Semangka",
-    "category": "Minuman",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-green",
-    "draft": true
-  },
-  {
-    "id": 107,
-    "name": "Jus Melon",
-    "category": "Minuman",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-green",
-    "draft": true
-  },
-  {
-    "id": 108,
-    "name": "Jus Jambu",
-    "category": "Minuman",
-    "price": 12000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-dragonfruit",
-    "draft": true
-  },
-  {
-    "id": 109,
-    "name": "Jus Buah Naga",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-dragonfruit",
-    "draft": true
-  },
-  {
-    "id": 110,
-    "name": "Jus Alpukat",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-avocado",
-    "draft": true
-  },
-  {
-    "id": 111,
-    "name": "Jus Nangka",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-green",
-    "draft": true
-  },
-  {
-    "id": 112,
-    "name": "Jus Pakel",
-    "category": "Minuman",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "juice-avocado",
-    "draft": true
-  },
-  {
-    "id": 113,
-    "name": "Es Batu",
-    "category": "Add-on",
-    "price": 1000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  },
-  {
-    "id": 114,
-    "name": "Jangan Ndeso",
-    "category": "Makanan",
-    "price": 20000,
-    "variant": "",
-    "stock": null,
-    "image_key": "jangan-ndeso",
-    "draft": true
-  },
-  {
-    "id": 115,
-    "name": "Gurame Bakar Madu",
-    "category": "Lauk",
-    "price": 59000,
-    "variant": "",
-    "stock": null,
-    "image_key": "gurame-madu",
-    "draft": true
-  },
-  {
-    "id": 116,
-    "name": "Gurame Krispy",
-    "category": "Lauk",
-    "price": 59000,
-    "variant": "",
-    "stock": null,
-    "image_key": "gurame-krispy",
-    "draft": true
-  },
-  {
-    "id": 117,
-    "name": "Gurame Asam Manis",
-    "category": "Lauk",
-    "price": 59000,
-    "variant": "",
-    "stock": null,
-    "image_key": "gurame-asam-manis",
-    "draft": true
-  },
-  {
-    "id": 118,
-    "name": "Gurame Asam Pedas",
-    "category": "Lauk",
-    "price": 59000,
-    "variant": "",
-    "stock": null,
-    "image_key": "gurame-asam-pedas",
-    "draft": true
-  },
-  {
-    "id": 119,
-    "name": "Ice Cream",
-    "category": "Minuman",
-    "price": 11000,
-    "variant": "Stik",
-    "stock": null,
-    "image_key": "ice-cream",
-    "draft": true
-  },
-  {
-    "id": 120,
-    "name": "Ice Cream",
-    "category": "Minuman",
-    "price": 12000,
-    "variant": "Cup",
-    "stock": null,
-    "image_key": "ice-cream",
-    "draft": true
-  },
-  {
-    "id": 121,
-    "name": "Long Black",
-    "category": "Kopi",
-    "price": 10000,
-    "variant": "",
-    "stock": null,
-    "image_key": "coffee-long-black",
-    "draft": true
-  },
-  {
-    "id": 122,
-    "name": "Ice Americano",
-    "category": "Kopi",
-    "price": 15000,
-    "variant": "",
-    "stock": null,
-    "image_key": "coffee-ice-americano",
-    "draft": true
-  },
-  {
-    "id": 123,
-    "name": "Bir Jawa",
-    "category": "Wedangan",
-    "price": 9000,
-    "variant": "",
-    "stock": null,
-    "image_key": "wedang-uwuh",
-    "draft": true
-  },
-  {
-    "id": 124,
-    "name": "Oriental",
-    "category": "Add-on",
-    "price": 1000,
-    "variant": "",
-    "stock": null,
-    "image_key": "refresh-tea-telang",
-    "draft": true
-  }
+ {
+  "id": 1,
+  "name": "Nasi Goreng Original",
+  "category": "Makanan",
+  "variant": "",
+  "price": 20000,
+  "image_key": "none",
+  "description": "Nasi goreng klasik dengan bumbu rempah pilihan. Rasanya gurih, khas nasi goreng rumahan. Disajikan dengan kerupuk."
+ },
+ {
+  "id": 2,
+  "name": "Nasi Goreng Kopi Sawah",
+  "category": "Makanan",
+  "variant": "",
+  "price": 27000,
+  "image_key": "none",
+  "description": "Nasi goreng khas dengan bumbu rempah, isian ayam suwir, telur, sosis, dan sayuran. Disajikan dengan kerupuk.",
+  "featured": true
+ },
+ {
+  "id": 3,
+  "name": "Nasi Goreng Seafood",
+  "category": "Makanan",
+  "variant": "",
+  "price": 27000,
+  "image_key": "nasi-goreng-seafood",
+  "description": "Nasi goreng seafood udang, cumi, dan telur. Bumbu aromatik, sedikit smokey. Disajikan dengan kerupuk."
+ },
+ {
+  "id": 4,
+  "name": "Bakmi Goreng",
+  "category": "Makanan",
+  "variant": "",
+  "price": 20000,
+  "image_key": "bakmi-goreng",
+  "description": "Mi kuning ditumis dengan bumbu khas, dengan potongan ayam dan sayuran segar. Disajikan hangat.",
+  "featured": true
+ },
+ {
+  "id": 5,
+  "name": "Bakmi Godog",
+  "category": "Makanan",
+  "variant": "",
+  "price": 20000,
+  "image_key": "bakmi-godog",
+  "description": "Mi rebus khas Jawa dengan kuah gurih yang hangat, dipadukan potongan ayam, telur, dan sayuran segar.",
+  "featured": true
+ },
+ {
+  "id": 6,
+  "name": "Nasi Telur Spesial",
+  "category": "Makanan",
+  "variant": "",
+  "price": 15000,
+  "image_key": "none",
+  "description": "Hidangan nasi telur dengan tambahan sosis, daun bawang, dan ayam suir."
+ },
+ {
+  "id": 7,
+  "name": "Ayam Goreng",
+  "category": "Lauk",
+  "variant": "",
+  "price": 25000,
+  "image_key": "ayam-goreng",
+  "description": "Ayam goreng gurih. Disajikan hangat dengan sambal dan lalapan segar plus nasi.",
+  "featured": true
+ },
+ {
+  "id": 8,
+  "name": "Chicken Katsu Original",
+  "category": "Lauk",
+  "variant": "",
+  "price": 20000,
+  "image_key": "none",
+  "description": "Ayam fillet goreng balut tepung roti, disajikan dengan salad segar. Pilih nasi atau frenchfries.",
+  "groups": [
+   "sisi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 9,
+  "name": "Udang Krispy",
+  "category": "Lauk",
+  "variant": "",
+  "price": 29000,
+  "image_key": "udang-krispy",
+  "description": "Udang berbalut tepung berbumbu, digoreng hingga keemasan. Disajikan dengan sambal dan nasi.",
+  "groups": [
+   "nasi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 10,
+  "name": "Lele Goreng",
+  "category": "Lauk",
+  "variant": "",
+  "price": 18000,
+  "image_key": "none",
+  "description": "Lele digoreng hingga renyah di luar dan lembut di dalam. Disajikan hangat bersama sambal, lalapan, dan nasi."
+ },
+ {
+  "id": 11,
+  "name": "Nila Goreng",
+  "category": "Lauk",
+  "variant": "",
+  "price": 23000,
+  "image_key": "none",
+  "description": "Ikan nila digoreng hingga renyah di luar dan lembut di dalam. Disajikan hangat bersama sambal, lalapan, dan nasi."
+ },
+ {
+  "id": 12,
+  "name": "Sop Sawah",
+  "category": "Sup",
+  "variant": "",
+  "price": 15000,
+  "image_key": "sop-sawah",
+  "description": "Sup hangat dan segar berisi potongan ayam lembut, wortel, dan kentang. Menghadirkan rasa rumahan. Disajikan dengan nasi."
+ },
+ {
+  "id": 13,
+  "name": "Capcay",
+  "category": "Sayuran",
+  "variant": "Goreng / Godog",
+  "price": 18000,
+  "image_key": "none",
+  "description": "Sayuran wortel, tepung bakwan goreng, kol, brokoli, kembang kol, dan sawi, dipadukan dengan bawang putih serta bumbu pilihan.",
+  "groups": [
+   "masak-gg"
+  ]
+ },
+ {
+  "id": 14,
+  "name": "Mendoan",
+  "category": "Camilan",
+  "variant": "",
+  "price": 10000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 15,
+  "name": "Kentang Goreng",
+  "category": "Camilan",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 16,
+  "name": "Kopi Tubruk",
+  "category": "Kopi",
+  "variant": "Temanggung / Merapi",
+  "price": 10000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "asal",
+   "gula"
+  ]
+ },
+ {
+  "id": 17,
+  "name": "Coffee Latte",
+  "category": "Kopi",
+  "variant": "Es / Panas",
+  "price": 16000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "suhu",
+   "gula",
+   "es",
+   "ukuran",
+   "shot",
+   "susu"
+  ]
+ },
+ {
+  "id": 18,
+  "name": "Es Kopi Susu",
+  "category": "Kopi",
+  "variant": "Original",
+  "price": 15000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es",
+   "ukuran",
+   "shot",
+   "susu"
+  ]
+ },
+ {
+  "id": 19,
+  "name": "Es Kopi Susu Gula Aren / Hazelnut",
+  "category": "Kopi",
+  "variant": "",
+  "price": 18000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es",
+   "ukuran",
+   "shot",
+   "susu"
+  ]
+ },
+ {
+  "id": 20,
+  "name": "Americano",
+  "category": "Kopi",
+  "variant": "Es / Panas",
+  "price": 15000,
+  "image_key": "ice-americano",
+  "description": "",
+  "groups": [
+   "suhu",
+   "gula",
+   "es",
+   "ukuran",
+   "shot"
+  ]
+ },
+ {
+  "id": 21,
+  "name": "Espresso",
+  "category": "Kopi",
+  "variant": "",
+  "price": 16000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "shot"
+  ]
+ },
+ {
+  "id": 22,
+  "name": "Cappucino",
+  "category": "Kopi",
+  "variant": "Es",
+  "price": 16000,
+  "image_key": "cappucino",
+  "description": "",
+  "groups": [
+   "gula",
+   "es",
+   "ukuran",
+   "shot",
+   "susu"
+  ]
+ },
+ {
+  "id": 23,
+  "name": "Cappucino",
+  "category": "Kopi",
+  "variant": "Panas",
+  "price": 20000,
+  "image_key": "cappucino",
+  "description": "",
+  "groups": [
+   "gula",
+   "ukuran",
+   "shot",
+   "susu"
+  ]
+ },
+ {
+  "id": 24,
+  "name": "Moccacino",
+  "category": "Kopi",
+  "variant": "Es",
+  "price": 16000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es",
+   "ukuran",
+   "shot",
+   "susu"
+  ]
+ },
+ {
+  "id": 25,
+  "name": "Moccacino",
+  "category": "Kopi",
+  "variant": "Panas",
+  "price": 20000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "ukuran",
+   "shot",
+   "susu"
+  ]
+ },
+ {
+  "id": 26,
+  "name": "Chocolate",
+  "category": "Minuman",
+  "variant": "Es",
+  "price": 15000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "es",
+   "ukuran"
+  ]
+ },
+ {
+  "id": 27,
+  "name": "Chocolate",
+  "category": "Minuman",
+  "variant": "Panas",
+  "price": 17000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "ukuran"
+  ]
+ },
+ {
+  "id": 28,
+  "name": "Jus Tomat",
+  "category": "Minuman",
+  "variant": "",
+  "price": 10000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 29,
+  "name": "Jus Mangga",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 30,
+  "name": "Air Mineral 600 ml",
+  "category": "Minuman",
+  "variant": "",
+  "price": 5000,
+  "image_key": "none",
+  "description": "",
+  "groups": []
+ },
+ {
+  "id": 31,
+  "name": "Nasi Bocil",
+  "category": "Makanan",
+  "variant": "",
+  "price": 15000,
+  "image_key": "none",
+  "description": "Nasi putih dengan isian 4 nugget, 3 sosis, dilengkapi saos mayones, saos tomat, dan lalapan segar."
+ },
+ {
+  "id": 32,
+  "name": "Nasi Belut",
+  "category": "Makanan",
+  "variant": "",
+  "price": 15000,
+  "image_key": "none",
+  "description": "Hidangan khas yang memadukan nasi putih hangat dengan lauk belut goreng renyah dan sambal."
+ },
+ {
+  "id": 33,
+  "name": "Kwetiau Goreng",
+  "category": "Makanan",
+  "variant": "",
+  "price": 20000,
+  "image_key": "kwetiau-goreng",
+  "description": "Kwetiau lebar ditumis dengan bumbu aromatik, dengan telur, ayam, dan sayuran segar. Sedikit smokey. Disajikan hangat.",
+  "featured": true
+ },
+ {
+  "id": 34,
+  "name": "Kwetiau Godog",
+  "category": "Makanan",
+  "variant": "",
+  "price": 20000,
+  "image_key": "none",
+  "description": "Kwetiau lembut dengan kuah gurih hangat khas Jawa. Hidangan berkuah yang pas disantap kapan saja."
+ },
+ {
+  "id": 35,
+  "name": "Ayam Bakar",
+  "category": "Lauk",
+  "variant": "",
+  "price": 27000,
+  "image_key": "ayam-bakar",
+  "description": "Ayam bakar dengan bumbu khas Nusantara. Disajikan hangat dengan sambal dan lalapan segar plus nasi.",
+  "featured": true
+ },
+ {
+  "id": 36,
+  "name": "Ayam Kampung Goreng",
+  "category": "Lauk",
+  "variant": "",
+  "price": 27000,
+  "image_key": "none",
+  "description": "Ayam kampung pilihan dimarinasi hingga meresap, aroma wangi rempah. Disajikan dengan sambal terasi dan lalapan segar, plus nasi.",
+  "featured": true
+ },
+ {
+  "id": 37,
+  "name": "Ayam Kampung Bakar",
+  "category": "Lauk",
+  "variant": "",
+  "price": 29000,
+  "image_key": "none",
+  "description": "Ayam kampung dimarinasi bumbu rempah lengkap dan kecap manis. Disajikan dengan sambal terasi dan lalapan segar, plus nasi.",
+  "featured": true
+ },
+ {
+  "id": 38,
+  "name": "Chicken Katsu Saos Tiram",
+  "category": "Lauk",
+  "variant": "",
+  "price": 25000,
+  "image_key": "none",
+  "description": "Ayam fillet goreng balut tepung roti, disajikan dengan salad segar. Pilih nasi atau frenchfries.",
+  "groups": [
+   "sisi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 39,
+  "name": "Chicken Katsu Saos Lada Hitam",
+  "category": "Lauk",
+  "variant": "",
+  "price": 25000,
+  "image_key": "none",
+  "description": "Ayam fillet goreng balut tepung roti, disajikan dengan salad segar. Pilih nasi atau frenchfries.",
+  "groups": [
+   "sisi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 40,
+  "name": "Chicken Katsu BBQ",
+  "category": "Lauk",
+  "variant": "",
+  "price": 25000,
+  "image_key": "none",
+  "description": "Ayam fillet goreng balut tepung roti, disajikan dengan salad segar. Pilih nasi atau frenchfries.",
+  "groups": [
+   "sisi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 41,
+  "name": "Chicken Karage Saos Tiram",
+  "category": "Lauk",
+  "variant": "",
+  "price": 25000,
+  "image_key": "none",
+  "description": "Potongan ayam krispi disajikan dengan saus tiram, dan bersama nasi putih."
+ },
+ {
+  "id": 42,
+  "name": "Chicken Karage Saos Lada Hitam",
+  "category": "Lauk",
+  "variant": "",
+  "price": 25000,
+  "image_key": "none",
+  "description": "Potongan ayam krispi disajikan dengan saus lada hitam, dan bersama nasi putih."
+ },
+ {
+  "id": 43,
+  "name": "Chicken Karage BBQ",
+  "category": "Lauk",
+  "variant": "",
+  "price": 25000,
+  "image_key": "none",
+  "description": "Potongan ayam krispi disajikan dengan saus BBQ, dan bersama nasi putih."
+ },
+ {
+  "id": 44,
+  "name": "Udang Saos Lada Hitam",
+  "category": "Lauk",
+  "variant": "",
+  "price": 29000,
+  "image_key": "none",
+  "description": "Udang dimasak dengan saus lada hitam. Perpaduan pedas, gurih, dan sedikit manis. Disajikan bersama nasi hangat.",
+  "groups": [
+   "nasi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 45,
+  "name": "Udang Saos Tiram",
+  "category": "Lauk",
+  "variant": "",
+  "price": 29000,
+  "image_key": "udang-saos-tiram",
+  "description": "Udang dimasak dengan saus tiram yang gurih, sedikit manis, berpadu dengan bawang. Disajikan bersama nasi hangat.",
+  "groups": [
+   "nasi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 46,
+  "name": "Udang Saos BBQ",
+  "category": "Lauk",
+  "variant": "",
+  "price": 29000,
+  "image_key": "none",
+  "description": "Udang dimasak dengan saus BBQ yang gurih, sedikit manis, berpadu dengan bawang. Disajikan bersama nasi hangat.",
+  "groups": [
+   "nasi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 47,
+  "name": "Cumi Krispy",
+  "category": "Lauk",
+  "variant": "",
+  "price": 29000,
+  "image_key": "cumi-krispy",
+  "description": "Cumi berbalut tepung berbumbu, digoreng hingga keemasan. Disajikan dengan sambal dan nasi.",
+  "groups": [
+   "nasi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 48,
+  "name": "Cumi Saos Lada Hitam",
+  "category": "Lauk",
+  "variant": "",
+  "price": 29000,
+  "image_key": "none",
+  "description": "Cumi dimasak dengan saus lada hitam. Perpaduan pedas, gurih, dan sedikit manis. Disajikan bersama nasi hangat.",
+  "groups": [
+   "nasi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 49,
+  "name": "Cumi Saos Tiram",
+  "category": "Lauk",
+  "variant": "",
+  "price": 29000,
+  "image_key": "none",
+  "description": "Cumi dimasak dengan saus tiram yang gurih, sedikit manis, berpadu dengan bawang. Disajikan bersama nasi hangat.",
+  "groups": [
+   "nasi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 50,
+  "name": "Cumi Saos BBQ",
+  "category": "Lauk",
+  "variant": "",
+  "price": 29000,
+  "image_key": "none",
+  "description": "Cumi dimasak dengan saus BBQ yang gurih, sedikit manis, berpadu dengan bawang. Disajikan bersama nasi hangat.",
+  "groups": [
+   "nasi",
+   "sambal"
+  ]
+ },
+ {
+  "id": 51,
+  "name": "Lele Bakar",
+  "category": "Lauk",
+  "variant": "",
+  "price": 20000,
+  "image_key": "none",
+  "description": "Lele dibakar dengan marinasi kecap manis dan rempah pilihan. Disajikan hangat bersama sambal, lalapan, dan nasi."
+ },
+ {
+  "id": 52,
+  "name": "Nila Krispy",
+  "category": "Lauk",
+  "variant": "Tanpa tulang",
+  "price": 25000,
+  "image_key": "none",
+  "description": "Ikan nila segar berbalut tepung berbumbu, renyah di luar dan lembut di dalam, tanpa tulang. Disajikan dengan sambal dan nasi."
+ },
+ {
+  "id": 53,
+  "name": "Nila Bakar",
+  "category": "Lauk",
+  "variant": "",
+  "price": 25000,
+  "image_key": "none",
+  "description": "Ikan nila dibakar dengan marinasi kecap manis dan rempah pilihan. Disajikan hangat bersama sambal, lalapan, dan nasi."
+ },
+ {
+  "id": 54,
+  "name": "Nila Masak Pedas",
+  "category": "Lauk",
+  "variant": "",
+  "price": 27000,
+  "image_key": "none",
+  "description": "Ikan nila dimasak dengan bumbu cabai dan rempah pilihan, rasa pedas gurih khas Nusantara. Disajikan dengan nasi putih."
+ },
+ {
+  "id": 55,
+  "name": "Tom Yum",
+  "category": "Sup",
+  "variant": "",
+  "price": 20000,
+  "image_key": "tom-yum",
+  "description": "Sup khas Thailand dengan cita rasa pedas, asam, dan aromatik. Dengan isian seafood, rasanya segar dan hangat."
+ },
+ {
+  "id": 56,
+  "name": "Paklay",
+  "category": "Sayuran",
+  "variant": "Goreng / Godog",
+  "price": 17000,
+  "image_key": "none",
+  "description": "Tumisan sayuran kental mirip capcay: sawi hijau, sawi putih, wortel, dan ayam suwir. Cocok untuk pendamping makan.",
+  "groups": [
+   "masak-gg"
+  ]
+ },
+ {
+  "id": 57,
+  "name": "Cah Kangkung",
+  "category": "Sayuran",
+  "variant": "",
+  "price": 10000,
+  "image_key": "none",
+  "description": "Kangkung segar ditumis bersama bawang putih, cabai, dan saus tiram. Teksturnya renyah. Cocok untuk pendamping makan."
+ },
+ {
+  "id": 58,
+  "name": "Terong Krispy",
+  "category": "Sayuran",
+  "variant": "",
+  "price": 10000,
+  "image_key": "none",
+  "description": "Irisan terong segar dibalut tepung berbumbu lalu digoreng. Gurih, cocok sebagai lauk atau camilan, dengan saus sambal."
+ },
+ {
+  "id": 59,
+  "name": "Sosis",
+  "category": "Camilan",
+  "variant": "Goreng / Bakar",
+  "price": 10000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "masak-gb"
+  ]
+ },
+ {
+  "id": 60,
+  "name": "Pisang",
+  "category": "Camilan",
+  "variant": "Goreng / Bakar",
+  "price": 12000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "masak-gb"
+  ]
+ },
+ {
+  "id": 61,
+  "name": "Pisang Pasir Coklat",
+  "category": "Camilan",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 62,
+  "name": "Singkong Goreng Keju",
+  "category": "Camilan",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 63,
+  "name": "Tahu Goreng",
+  "category": "Camilan",
+  "variant": "",
+  "price": 8000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 64,
+  "name": "Tahu Cabe Garam",
+  "category": "Camilan",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 65,
+  "name": "Tahu Bakso",
+  "category": "Camilan",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 66,
+  "name": "Bakwan",
+  "category": "Camilan",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 67,
+  "name": "Roti Bakar",
+  "category": "Camilan",
+  "variant": "",
+  "price": 10000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 68,
+  "name": "Gemblong Cotot",
+  "category": "Camilan",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 69,
+  "name": "Cireng",
+  "category": "Camilan",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 70,
+  "name": "Tempe Tanpa Tepung",
+  "category": "Camilan",
+  "variant": "",
+  "price": 10000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 71,
+  "name": "Nasi Putih",
+  "category": "Add-on",
+  "variant": "",
+  "price": 5000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 72,
+  "name": "Sambal Terasi",
+  "category": "Add-on",
+  "variant": "",
+  "price": 4000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 73,
+  "name": "Sambal Bawang",
+  "category": "Add-on",
+  "variant": "",
+  "price": 4000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 74,
+  "name": "Telur Goreng",
+  "category": "Add-on",
+  "variant": "",
+  "price": 5000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 75,
+  "name": "Paket Lele",
+  "category": "Paket",
+  "variant": "",
+  "price": 25000,
+  "image_key": "paket-lele",
+  "description": "Lele goreng, nasi, sambal, lalapan, dan teh panas / es.",
+  "groups": [
+   "teh",
+   "sambal"
+  ]
+ },
+ {
+  "id": 76,
+  "name": "Paket Nila",
+  "category": "Paket",
+  "variant": "",
+  "price": 30000,
+  "image_key": "paket-nila",
+  "description": "Nila goreng, nasi, sambal, lalapan, dan teh panas / es.",
+  "groups": [
+   "teh",
+   "sambal"
+  ]
+ },
+ {
+  "id": 77,
+  "name": "Paket Ayam",
+  "category": "Paket",
+  "variant": "",
+  "price": 30000,
+  "image_key": "paket-ayam",
+  "description": "Ayam goreng, nasi, sambal, lalapan, dan teh panas / es.",
+  "groups": [
+   "teh",
+   "sambal"
+  ]
+ },
+ {
+  "id": 78,
+  "name": "Paket Ayam Kampung",
+  "category": "Paket",
+  "variant": "",
+  "price": 35000,
+  "image_key": "paket-ayam-kampung",
+  "description": "Ayam kampung goreng, nasi, sambal, lalapan, dan teh panas / es.",
+  "groups": [
+   "teh",
+   "sambal"
+  ]
+ },
+ {
+  "id": 79,
+  "name": "Wedang Jahe",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 8000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 80,
+  "name": "Wedang Teh Jahe",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 8000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 81,
+  "name": "Wedang Susu Jahe",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 8000,
+  "image_key": "wedang-susu-jahe",
+  "description": ""
+ },
+ {
+  "id": 82,
+  "name": "Wedang Jahe Sereh Jeruk",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 10000,
+  "image_key": "wedang-jahe-sereh-jeruk",
+  "description": ""
+ },
+ {
+  "id": 83,
+  "name": "Wedang Teh",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 6000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 84,
+  "name": "Wedang Teh Lemon",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 8000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 85,
+  "name": "Wedang Teh Teko",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 15000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 86,
+  "name": "Wedang Jeruk",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 8000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 87,
+  "name": "Wedang Jeruk Nipis",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 7000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 88,
+  "name": "Wedang Tape",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 10000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 89,
+  "name": "Wedang Uwuh",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 9000,
+  "image_key": "wedang-uwuh",
+  "description": ""
+ },
+ {
+  "id": 90,
+  "name": "Wedang Coklat",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 8000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 91,
+  "name": "Wedang Susu",
+  "category": "Wedangan",
+  "variant": "Putih / Coklat",
+  "price": 8000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "rasa-susu"
+  ]
+ },
+ {
+  "id": 92,
+  "name": "Es Teh",
+  "category": "Minuman",
+  "variant": "",
+  "price": 6000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es",
+   "ukuran"
+  ]
+ },
+ {
+  "id": 93,
+  "name": "Teh Krampul",
+  "category": "Minuman",
+  "variant": "",
+  "price": 7000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "suhu",
+   "gula",
+   "es",
+   "ukuran"
+  ]
+ },
+ {
+  "id": 94,
+  "name": "Lemon Tea",
+  "category": "Minuman",
+  "variant": "",
+  "price": 8000,
+  "image_key": "lemon-tea",
+  "description": "",
+  "groups": [
+   "gula",
+   "es",
+   "ukuran"
+  ]
+ },
+ {
+  "id": 95,
+  "name": "Soda Ceria",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "es"
+  ]
+ },
+ {
+  "id": 96,
+  "name": "Kunir Asem",
+  "category": "Minuman",
+  "variant": "",
+  "price": 8000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 97,
+  "name": "Beras Kencur",
+  "category": "Minuman",
+  "variant": "",
+  "price": 8000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 98,
+  "name": "Es Campur",
+  "category": "Minuman",
+  "variant": "",
+  "price": 10000,
+  "image_key": "none",
+  "description": "",
+  "groups": []
+ },
+ {
+  "id": 99,
+  "name": "Lychee Tea",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "lychee-tea",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 100,
+  "name": "Es Teh Telang",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "es-telang",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 101,
+  "name": "Es Lemon Telang",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "es-telang",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 102,
+  "name": "Chocolate Strawberry Ice",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "es",
+   "ukuran"
+  ]
+ },
+ {
+  "id": 103,
+  "name": "Vietnam Drip",
+  "category": "Kopi",
+  "variant": "",
+  "price": 20000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "suhu",
+   "gula",
+   "es",
+   "ukuran"
+  ]
+ },
+ {
+  "id": 104,
+  "name": "V60",
+  "category": "Kopi",
+  "variant": "",
+  "price": 20000,
+  "image_key": "v60",
+  "description": "",
+  "groups": []
+ },
+ {
+  "id": 105,
+  "name": "Jus Wortel",
+  "category": "Minuman",
+  "variant": "",
+  "price": 10000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 106,
+  "name": "Jus Semangka",
+  "category": "Minuman",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 107,
+  "name": "Jus Melon",
+  "category": "Minuman",
+  "variant": "",
+  "price": 12000,
+  "image_key": "jus-melon",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 108,
+  "name": "Jus Jambu",
+  "category": "Minuman",
+  "variant": "",
+  "price": 12000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 109,
+  "name": "Jus Buah Naga",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "jus-buah-naga",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 110,
+  "name": "Jus Alpukat",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "jus-alpukat",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 111,
+  "name": "Jus Nangka",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 112,
+  "name": "Jus Pakel",
+  "category": "Minuman",
+  "variant": "",
+  "price": 15000,
+  "image_key": "none",
+  "description": "",
+  "groups": [
+   "gula",
+   "es"
+  ]
+ },
+ {
+  "id": 113,
+  "name": "Es Batu",
+  "category": "Add-on",
+  "variant": "",
+  "price": 1000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 114,
+  "name": "Jangan Ndeso",
+  "category": "Makanan",
+  "variant": "",
+  "price": 20000,
+  "image_key": "jangan-ndeso",
+  "description": "Hidangan khas Gunung Kidul: sayur tempe lombok ijo yang gurih, disajikan dengan ikan wader dan nasi putih."
+ },
+ {
+  "id": 115,
+  "name": "Gurame Bakar Madu",
+  "category": "Lauk",
+  "variant": "",
+  "price": 59000,
+  "image_key": "gurame-bakar-madu",
+  "description": "Ikan gurame bakar dengan olesan madu murni. Rasa manis madu berpadu sempurna dengan gurihnya bumbu bakaran."
+ },
+ {
+  "id": 116,
+  "name": "Gurame Krispy",
+  "category": "Lauk",
+  "variant": "",
+  "price": 59000,
+  "image_key": "gurame-krispy",
+  "description": "Ikan gurame segar berbalut tepung berbumbu, renyah di luar dan lembut di dalam. Disajikan dengan sambal."
+ },
+ {
+  "id": 117,
+  "name": "Gurame Asam Manis",
+  "category": "Lauk",
+  "variant": "",
+  "price": 59000,
+  "image_key": "gurame-asam-manis",
+  "description": "Ikan gurame goreng krispi yang disiram saus asam manis. Rasa segar, manis gurih yang menggugah selera."
+ },
+ {
+  "id": 118,
+  "name": "Gurame Asam Pedas",
+  "category": "Lauk",
+  "variant": "",
+  "price": 59000,
+  "image_key": "gurame-asam-pedas",
+  "description": "Ikan gurame segar dimasak dengan kuah asam pedas, bumbu rempah, dan cabai. Rasa segar dan pedas."
+ },
+ {
+  "id": 119,
+  "name": "Ice Cream",
+  "category": "Minuman",
+  "variant": "Stik",
+  "price": 11000,
+  "image_key": "ice-cream",
+  "description": "",
+  "groups": []
+ },
+ {
+  "id": 120,
+  "name": "Ice Cream",
+  "category": "Minuman",
+  "variant": "Cup",
+  "price": 12000,
+  "image_key": "ice-cream",
+  "description": "",
+  "groups": []
+ },
+ {
+  "id": 121,
+  "name": "Long Black",
+  "category": "Kopi",
+  "variant": "",
+  "price": 10000,
+  "image_key": "long-black",
+  "description": "",
+  "groups": []
+ },
+ {
+  "id": 122,
+  "name": "Ice Americano",
+  "category": "Kopi",
+  "variant": "",
+  "price": 15000,
+  "image_key": "ice-americano",
+  "description": "",
+  "groups": [
+   "gula",
+   "es",
+   "ukuran",
+   "shot"
+  ]
+ },
+ {
+  "id": 123,
+  "name": "Bir Jawa",
+  "category": "Wedangan",
+  "variant": "",
+  "price": 9000,
+  "image_key": "none",
+  "description": ""
+ },
+ {
+  "id": 124,
+  "name": "Air Es",
+  "category": "Add-on",
+  "variant": "",
+  "price": 1000,
+  "image_key": "none",
+  "description": ""
+ }
 ]

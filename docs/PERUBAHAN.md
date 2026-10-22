@@ -382,3 +382,30 @@ Data lama aman: **124 menu tetap**, 0 transaksi. Cadangan sebelum migrasi:
   varian; halaman Kas menampilkan laporan sementara (uang awal 200.000 + tunai 18.000 = 218.000) dan
   tutup kasir menghasilkan “Uang laci cocok ✓” dengan selisih 0.
 - Data uji dibersihkan kembali: **0 transaksi, 0 shift, 124 menu**, satu akun `Kasir` (pemilik).
+
+
+---
+
+# Ronde 6 — 22 Oktober 2026: menu & foto dari PDF (commit eacd719) digabung
+
+## 28. Isi penggabungan
+Commit `eacd719` dari cabang PR digabung ke `main` **dengan mode tanpa login dipertahankan**:
+- Katalog disamakan lagi dengan PDF menu (mis. `Oriental` → **Air Es**), foto menu **dipotong ulang dari PDF**
+  dan nama berkas foto diperbaiki, logo baru, `data/menu_patch_v4.json`, `docs/FOTO-MENU.md`.
+- Patch katalog dijalankan otomatis saat layanan start (`apply_menu_patch`, penanda `settings.menu_patch = 4`),
+  jadi database yang sudah ada ikut berubah tanpa menghapus transaksi.
+- Fitur baru: **varian per produk** (`product_groups` + `custom_modifiers`) — tiap menu bisa punya
+  kelompok varian sendiri, bukan hanya per kategori.
+- Konflik saat merge: `.gitignore`, `docs/PERUBAHAN.md`, `static/app.js`.
+  Diselesaikan dengan: `.gitignore` digabung, changelog memakai versi kita (berkas ini),
+  `app.js` memakai versi baru lalu **dua tambalan mode tanpa login dipasang ulang**
+  (`state.tanpaLogin`, tombol Keluar disembunyikan).
+- `app.py` tergabung otomatis dan **tambalan `KOPI_SAWAH_TANPA_LOGIN` tetap utuh** (13 kemunculan, `py_compile` OK).
+
+## 29. Uji sebelum tayang
+- Salinan DB produksi + DB kosong di port 18794: login mati (user “Kasir” peran pemilik, `tanpa_login: true`),
+  katalog 124 menu dengan patch `Air Es`, penanda `menu_patch=4` tersimpan.
+- Transaksi: `Americano` dengan varian per produk (`Suhu`, `Level Gula`, `Ukuran`) → Rp15.000, anti dobel `duplicate: true`,
+  laporan menghitung 1 transaksi, detail struk lengkap, ekspor CSV 200.
+- Catatan: percobaan pertama gagal karena pemanggil uji memakai varian **per kategori**; versi baru memakai
+  **varian per produk** (`/api/modifiers` → `product_groups`).

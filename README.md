@@ -13,6 +13,7 @@ dibuat untuk pengguna awam (HP, tablet, atau laptop).
 | Area | Isi |
 |---|---|
 | **Akun & peran** | Pemilik & Kasir, masuk dengan PIN (di-hash PBKDF2), batas percobaan salah, sesi 12 jam, riwayat aktivitas |
+| **Pesan lewat QR meja** | Tiap meja punya QR. Pelanggan scan → pilih menu (foto, deskripsi, pilihan) → kirim; kasir menerima (berbunyi), menandai siap/disajikan, lalu menerima bayar sekali untuk seluruh pesanan meja. Ada tombol *Panggil pelayan* / *Minta bill* |
 | **Kasir** | Cari/filter menu, varian berbayar (ukuran, gula, es, susu, extra shot, sambal), keranjang yang bertahan saat halaman dimuat ulang, jenis pesanan (makan di sini/bawa pulang), nomor meja, catatan |
 | **Pembayaran** | Tunai (uang diterima + kembalian + tombol uang pas), QRIS, kartu, e-wallet, transfer *(non-tunai hanya dicatat, belum terintegrasi payment gateway)* |
 | **Harga** | Diskon (% atau Rp, wajib alasan, batas untuk kasir diatur pemilik), biaya layanan, pajak, pembulatan — semua bawaan **0** |
@@ -21,7 +22,8 @@ dibuat untuk pengguna awam (HP, tablet, atau laptop).
 | **Pembatalan** | Pemilik dapat membatalkan transaksi (alasan wajib), stok dikembalikan |
 | **Stok** | Hitungan fisik per menu, otomatis berkurang & tidak boleh minus, tanda "habis" cepat dari kasir |
 | **Laporan** | Penjualan bersih, per cara bayar, jam ramai, per hari, menu terlaris, laba kotor perkiraan (dari HPP), unduh CSV |
-| **Data** | Unduh cadangan `.sqlite3` dari layar Pengaturan |
+| **Menu** | 124 menu sesuai *Menu Baru* (PDF): foto hasil potongan dari PDF, deskripsi, ⭐ favorit, pilihan khusus per menu (mis. *Tanpa nasi −Rp4.000*), unggah foto sendiri dari HP |
+| **Data** | Unduh cadangan `.zip` (database + foto unggahan) dari layar Pengaturan |
 
 ## Menjalankan lokal
 
@@ -36,7 +38,7 @@ kasir di **Kelola → Tim**.
 Uji otomatis (memakai database sementara):
 
 ```bash
-python3 -m unittest discover -s tests -v                          # API
+python3 -m unittest discover -s tests -v                          # API (18 tes)
 NODE_PATH=/opt/node-tools/node_modules node tests/browser_check.js  # alur layar di Chromium
 ```
 
@@ -59,11 +61,14 @@ NODE_PATH=/opt/node-tools/node_modules node tests/browser_check.js  # alur layar
 app.py                  server + API + migrasi skema
 static/index.html       kerangka halaman
 static/app.css          tampilan
-static/app.js           antarmuka (tanpa pustaka luar)
+static/app.js           antarmuka kasir/pemilik (tanpa pustaka luar)
+static/order.html|.js|.css   halaman pesan pelanggan (/m/<kode meja>)
+static/vendor/qrcode.js pembuat QR (qrcode-generator 2.0.4, MIT)
 static/images/          foto menu & logo
 data/catalog.json       katalog awal (124 menu)
 tests/                  uji API dan uji layar
 deploy/                 nginx, systemd, panduan pasang (deploy/README.md)
+tools/crop_menu_photos.py   memotong foto menu dari PDF (alat pengembang)
 docs/REVIEW.md          review, temuan, dan peta pengembangan
 docs/PERUBAHAN.md       catatan perubahan & rollback
 ```
@@ -74,4 +79,5 @@ docs/PERUBAHAN.md       catatan perubahan & rollback
 - Cookie sesi `HttpOnly; SameSite=Strict` (+`Secure` di HTTPS), CSP ketat, tanpa skrip/handler inline.
 - Proses hanya mendengar di `127.0.0.1`; hanya nginx yang boleh meneruskan.
 - Repo ini **publik**: jangan simpan sandi, berkas database, atau cadangan di sini (`.gitignore` sudah mengecualikan `*.sqlite3`).
+- Halaman pelanggan (`/m/<kode>`) dan API `/api/public/*` memang **tanpa login**: hanya menu, pesan, batal-saat-menunggu, dan panggil pelayan. Pelanggan tidak bisa melihat stok/HPP/transaksi; pesanan baru berstatus *menunggu konfirmasi* sampai kasir menerima; ada batas laju per perangkat dan per meja; kode QR bisa diganti pemilik.
 - Batasan: belum ada 2FA, PIN pemulihan, atau pembatasan per perangkat. Lihat `docs/REVIEW.md`.

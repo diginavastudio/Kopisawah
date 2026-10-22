@@ -92,6 +92,88 @@ const CHROME = process.env.CHROME_PATH || undefined;
     ok('selisih kas terdeteksi', (await page.textContent('#diffBox')).includes('Kurang'));
     await page.click('#tabs [data-view=home]'); await page.waitForSelector('.stats'); await shot('18-beranda');
 
+    // 5b. QR meja: pemilik membuat meja → pelanggan memesan lewat HP → kasir memproses & menerima bayar
+    await page.click('#tabs [data-view=kelola]'); await page.click('[data-act=sub][data-s=meja]'); await page.waitForSelector('[data-act=addTables]');
+    await page.click('[data-act=addTables]'); await page.waitForSelector('#theForm'); await page.fill('[name=count]', '3'); await page.click('[data-submit]');
+    await page.waitForSelector('[data-act=tableQR]'); await shot('21-meja-qr');
+    ok('3 meja dibuat', (await page.$$('[data-act=tableQR]')).length === 3);
+    await page.click('[data-act=tableQR] >> nth=0'); await page.waitForSelector('.sheet svg'); await shot('22-qr-meja');
+    const tok = await page.evaluate(() => state.tables[0].token);
+    const qrUrl = `${base}/m/${tok}`;
+    if (process.env.QR_DECODER) {
+      await page.locator('.sheet svg').first().screenshot({ path: path.join(shots, 'qr-meja1.png') });
+      const out = require('node:child_process').execFileSync(process.env.QR_DECODER.split(' ')[0], [...process.env.QR_DECODER.split(' ').slice(1), path.join(shots, 'qr-meja1.png')]).toString().trim();
+      ok('QR terbaca pemindai dan mengarah ke halaman pesan meja', out === qrUrl, out);
+    } else results.push(['LEWAT', 'QR dipindai (set QR_DECODER untuk mengaktifkan)', '']);
+    await page.click('[data-close]');
+
+    const cust = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'id-ID' });
+    const cp = await cust.newPage();
+    cp.on('pageerror', e => errors.push('pelanggan pageerror: ' + e.message));
+    cp.on('console', m => { if (m.type() === 'error' && !/40[0-9]|42[0-9]/.test(m.text())) errors.push('pelanggan console: ' + m.text()); });
+    await cp.goto(`${base}/m/${tok}`); await cp.waitForSelector('.item');
+    ok('halaman pelanggan memuat menu & nama meja', (await cp.textContent('header.top')).includes('Meja 1') && (await cp.$$('.item')).length > 100);
+    await cp.screenshot({ path: path.join(shots, '30-pelanggan-menu.png') });
+    await cp.fill('#q', 'Bakmi Goreng'); await cp.click('.item >> nth=0');
+    await cp.waitForSelector('.sheet [data-add]'); await cp.click('.sheet [data-add]');
+    await cp.fill('#q', 'Udang Krispy'); await cp.click('.item >> nth=0'); await cp.waitForSelector('.opt');
+    ok('tombol tambah nonaktif sebelum pilihan wajib dipilih', await cp.isDisabled('.sheet [data-add]'));
+    await cp.screenshot({ path: path.join(shots, '31-pelanggan-pilihan.png') });
+    await cp.click('.opt:has-text("Tanpa nasi")'); await cp.click('.sheet [data-add]');
+    await cp.click('[data-act=cart]'); await cp.waitForSelector('.sheet .cl >> nth=1');
+    await cp.fill('#nm', 'Bu Sari'); await cp.fill('#nt', 'jangan pedas');
+    await cp.screenshot({ path: path.join(shots, '32-pelanggan-keranjang.png') });
+    await cp.click('[data-send]'); await cp.waitForSelector('.ord');
+    ok('pesanan terkirim, status menunggu konfirmasi', (await cp.textContent('.sheet')).includes('Menunggu konfirmasi'));
+    await cp.screenshot({ path: path.join(shots, '33-pelanggan-status.png') });
+
+    await page.click('#tabs [data-view=meja]'); await page.waitForSelector('[data-act=orderStatus]', { timeout: 15000 });
+    ok('kasir melihat pesanan masuk (menunggu konfirmasi)', (await page.textContent('#main')).includes('Meja 1') && (await page.textContent('#main')).includes('Bu Sari'));
+    await shot('34-kasir-meja');
+    await page.click('[data-act=orderStatus][data-s=accepted]'); await page.waitForSelector('[data-act=orderStatus][data-s=ready]');
+    await page.click('[data-act=orderStatus][data-s=ready]'); await page.waitForSelector('[data-act=orderStatus][data-s=served]');
+    await cp.waitForSelector('.sheet .pill.ok:has-text("siap")', { timeout: 15000 }).catch(() => { });
+    await cp.click('[data-act=call][data-k=waiter]'); await cp.waitForSelector('[data-act=call][data-k=waiter][disabled]');
+    await page.waitForSelector('.notice:has-text("memanggil pelayan")', { timeout: 15000 });
+    ok('panggilan pelayan dari meja muncul di kasir', true);
+    await page.click('[data-act=orderStatus][data-s=served]');
+    await page.click('[data-act=payTable]'); await page.waitForSelector('#coPay');
+    ok('bayar meja memuat pesanan QR', (await page.textContent('.sheet')).includes('PM'));
+    await page.click('#coPay [data-m=qris]'); await shot('35-bayar-meja'); await page.click('#coPayBtn'); await page.waitForSelector('.receipt');
+    ok('struk bayar meja memuat nomor meja & hitungan benar', (await page.textContent('.receipt')).includes('Meja 1') && (await page.textContent('.receipt')).includes('Tanpa nasi'));
+    await shot('36-struk-meja'); await page.click('[data-done]');
+    await cp.reload(); await cp.waitForSelector('.item'); await cp.click('[data-act=status]'); await cp.waitForSelector('.ord');
+    ok('pelanggan melihat pesanan Selesai', (await cp.textContent('.sheet')).includes('Selesai'));
+    await cp.screenshot({ path: path.join(shots, '37-pelanggan-selesai.png') });
+    const cov = await cp.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+    ok('halaman pelanggan tanpa geser horizontal', cov <= 1, `selisih ${cov}px`);
+    await cp.goto(`${base}/m/kodesalah123`); await cp.waitForSelector('.err');
+    ok('QR salah → pesan ramah', (await cp.textContent('.err')).includes('tidak dikenali'));
+    await cp.screenshot({ path: path.join(shots, '38-qr-salah.png') });
+
+    // 5c. unggah foto, pilihan khusus menu, cetak QR
+    await page.click('#tabs [data-view=kelola]'); await page.click('[data-act=sub][data-s=menu]'); await page.waitForSelector('[data-act=editProduct]');
+    await page.fill('#mq', 'Nasi Goreng Original'); await page.waitForTimeout(500);
+    await page.click('[data-act=editProduct] >> nth=0'); await page.waitForSelector('#photoFile', { state: 'attached' });
+    await page.setInputFiles('#photoFile', path.join(__dirname, '..', 'static', 'images', 'bakmi-goreng.jpg'));
+    await page.waitForSelector('#imgPrev img', { timeout: 15000 });
+    const up = await page.evaluate(() => state.products.find(p => p.name === 'Nasi Goreng Original').image_key);
+    ok('foto unggahan tersimpan (up-…)', /^up-[0-9a-f]{12}$/.test(up), up);
+    const prevOk = await page.evaluate(() => { const i = document.querySelector('#imgPrev img'); return i && i.complete && i.naturalWidth > 0; });
+    ok('foto unggahan tampil dari /media', prevOk);
+    await page.click('#modMode [data-v=custom]'); await page.waitForSelector('#modChips button');
+    await page.click('#modChips button[data-g=gula]');
+    await shot('23-ubah-menu-foto-opsi');
+    await page.click('[data-cancel]');
+    await page.click('#tabs [data-view=kelola]'); await page.click('[data-act=sub][data-s=meja]'); await page.waitForSelector('[data-act=printAllQR]');
+    await page.evaluate(() => { window.print = () => { }; });
+    await page.click('[data-act=printAllQR]'); await page.waitForTimeout(300);
+    await page.emulateMedia({ media: 'print' });
+    const nCards = await page.evaluate(() => document.querySelectorAll('#printArea .qrcard').length);
+    ok('cetak semua QR: 3 kartu meja tersusun', nCards === 3, String(nCards));
+    await page.screenshot({ path: path.join(shots, '24-cetak-qr.png'), fullPage: false });
+    await page.emulateMedia({ media: 'screen' });
+
     // 6. tampilan HP
     const mob = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'id-ID' });
     const mp = await mob.newPage();
