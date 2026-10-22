@@ -128,9 +128,10 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .compact .tile img{display:none}
 .compact .tile .in{flex-direction:row;align-items:center;gap:10px;padding:12px 14px}
 .compact .tile .nm{flex:1}
-.cart{background:#fff;border:1.5px solid var(--line);border-radius:var(--r);padding:14px;position:sticky;top:124px;box-shadow:var(--shadow)}
+.cart{background:#fff;border:1.5px solid var(--line);border-radius:var(--r);padding:14px;position:sticky;top:124px;box-shadow:var(--shadow);display:flex;flex-direction:column;max-height:calc(100vh - 136px);max-height:calc(100dvh - 136px)}
+.cart>*{flex:none}
 .cart h3{display:flex;justify-content:space-between;align-items:center}
-.cart-lines{max-height:calc(100vh - 380px);overflow:auto;margin:6px -4px}
+.cart-lines{flex:1 1 auto!important;min-height:72px;overflow:auto;margin:6px -4px;overscroll-behavior:contain}
 .cl{display:flex;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line2);align-items:flex-start}
 .cl .info{flex:1;min-width:0}
 .cl .nm{font-weight:600} .cl .op{font-size:13px;color:var(--gold-ink)}
@@ -160,7 +161,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 
 /* ---- lembar (modal) ---- */
 .scrim{position:fixed;inset:0;background:#1d221488;z-index:60;display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto}
-.sheet{background:#fff;border-radius:18px;width:min(560px,100%);max-height:calc(100vh - 28px);display:flex;flex-direction:column;box-shadow:0 20px 60px #0005}
+.sheet{background:#fff;border-radius:18px;width:min(560px,100%);max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);display:flex;flex-direction:column;box-shadow:0 20px 60px #0005}
 .sheet.wide{width:min(760px,100%)}
 .sheet-h{padding:16px 18px 10px;display:flex;align-items:flex-start;gap:10px;justify-content:space-between}
 .sheet-h .x{border:0;background:#efece0;border-radius:50%;width:38px;height:38px;font-size:20px;line-height:1;flex:none}
@@ -171,7 +172,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .toast.bad{background:var(--bad)} .toast.ok{background:var(--ok)}
 
 /* ---- masuk / penyiapan ---- */
-.auth{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;background:linear-gradient(180deg,var(--head) 0,var(--head) 230px,var(--bg) 230px)}
+.auth{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;background:linear-gradient(180deg,var(--head) 0,var(--head) 230px,var(--bg) 230px)}
 .auth img{height:54px;margin-bottom:18px}
 .auth img.auth-logo{height:92px;width:92px;border-radius:50%;background:#000;box-shadow:0 4px 18px #0006}
 .auth .card{width:min(440px,100%)}
@@ -217,7 +218,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   #cats{flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px;margin-right:-12px;-webkit-overflow-scrolling:touch}
   #cats button{flex:none}
   .scrim{align-items:flex-end;padding:0}
-  .sheet{border-radius:18px 18px 0 0;width:100%;max-height:92vh}
+  .sheet{border-radius:18px 18px 0 0;width:100%;max-height:92vh;max-height:92dvh}
 }
 @media print{
   body *{visibility:hidden}
@@ -247,3 +248,41 @@ nav.tabs button.active .nbadge{background:var(--gold);color:#2a2005}
 .qrgrid{display:grid;grid-template-columns:1fr 1fr;gap:6mm}
 @media(max-width:640px){nav.tabs button{font-size:11px}}
 @media print{.print-area.qr{width:210mm;padding:10mm}}
+
+/* ---- bar offline ---- */
+.offbar{padding:8px 16px;font-size:14px;text-align:center;border-bottom:1px solid var(--line)}
+.offbar.bad{background:var(--bad-soft);color:#6f2314}.offbar.warn{background:var(--warn-soft);color:#4d3a05}
+.offbar .btn{margin-left:6px}
+
+.photo-block{display:flex;gap:14px;align-items:flex-start;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line2)}
+.photo-block .prevbox{width:132px;height:99px}
+@media(max-width:420px){.photo-block{flex-direction:column}.photo-block .prevbox{width:100%;height:150px}}
+
+.tstrip{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.tchip{display:inline-flex;gap:6px;align-items:center;border-radius:999px;padding:5px 12px;font-size:13.5px;font-weight:600;background:#efece0;color:var(--muted);border:1px solid var(--line)}
+.tchip.busy{background:var(--ok-soft);color:var(--ok);border-color:#b8dcc3}
+.tchip.wait{background:var(--warn-soft);color:var(--warn);border-color:#ecd391}
+
+.seg button{white-space:nowrap}
+.opt.multi.on .box::after{content:"✓";width:auto;height:auto;background:none;color:#fff;font-size:15px;font-weight:800;line-height:1;border-radius:0}
+details{border:1px solid var(--line);border-radius:12px;padding:10px 14px;background:#fff}
+details[open]{background:#fcfbf5}
+summary{cursor:pointer;min-height:32px;display:flex;align-items:center}
+details ol,details p{margin:8px 0 4px;padding-left:20px}
+details p{padding-left:0}
+details li{margin:4px 0}
+
+/* ---- layar sangat kecil (≤ 400px): header & tab muat tanpa melebar ---- */
+@media(max-width:400px){
+  .top{gap:6px;padding:6px 8px;min-height:52px}
+  .top .brand{display:none}
+  .top .badge-logo{height:34px;width:34px}
+  .top .chip{font-size:11.5px;padding:3px 8px}
+  .top .who{gap:6px;min-width:0}
+  .top .btn.ghost{padding:4px 10px;min-height:34px;font-size:13px}
+  nav.tabs{top:52px}
+  nav.tabs button{font-size:10px;letter-spacing:-.2px;padding:6px 0}
+  nav.tabs button svg{width:18px;height:18px}
+  .tools,.head{min-width:0}
+}
+@media(max-width:360px){#shiftChip .chip{max-width:112px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}

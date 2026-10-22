@@ -48,6 +48,9 @@ except Exception:
 VALID_IMAGE_KEYS = {p.stem for p in (STATIC / "images").glob("*.jpg")}
 UPLOAD_DIR = DB_PATH.parent / "uploads"   # di folder database (systemd hanya mengizinkan tulis di sana)
 MENU_PATCH = DATA / "menu_patch_v4.json"
+BACKUP_DIR = Path(os.environ.get("KOPI_SAWAH_BACKUP_DIR", DB_PATH.parent / "backups"))
+BACKUP_HOUR = int(os.environ.get("KOPI_SAWAH_BACKUP_HOUR", "3"))   # jam lokal; cadangan harian otomatis
+BACKUP_KEEP = int(os.environ.get("KOPI_SAWAH_BACKUP_KEEP", "14"))
 CATEGORY_ORDER = ["Makanan", "Lauk", "Paket", "Sup", "Sayuran", "Camilan", "Kopi", "Minuman", "Wedangan", "Add-on"]
 
 SESSION_HOURS = 12
@@ -66,6 +69,7 @@ SETTING_DEFAULTS = {
     "kasir_max_discount_percent": "0",
     "outlet_contact": "Reservasi 0851-1725-9677 · IG @kafekopisawah",
     "public_base_url": "",
+    "qris_image": "",
 }
 ORDER_OPEN = ("pending", "accepted", "ready", "served")
 ORDER_STATUS_NAME = {"pending": "Menunggu konfirmasi", "accepted": "Sedang diproses", "ready": "Siap",
@@ -354,6 +358,24 @@ def apply_menu_patch(c):
     c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('menu_patch','4')")
 
 
+def apply_patch_v5(c):
+    """Kelompok pilihan "Level Pedas" (opsional) untuk Makanan & Lauk. Pemilik bisa melepasnya kapan saja."""
+    if c.execute("SELECT 1 FROM settings WHERE key='menu_patch_v5'").fetchone():
+        return
+    if not c.execute("SELECT 1 FROM modifier_groups WHERE id='pedas'").fetchone():
+        order = c.execute("SELECT COALESCE(MAX(sort),0)+1 FROM modifier_groups").fetchone()[0]
+        c.execute("INSERT OR IGNORE INTO modifier_groups(id,name,min_select,max_select,sort,active) VALUES('pedas','Level Pedas',0,1,?,1)", (order,))
+        for i, name in enumerate(("Tidak pedas", "Sedang", "Pedas", "Extra pedas")):
+            c.execute("INSERT OR IGNORE INTO modifiers(id,group_id,name,price_delta,sort,active) VALUES(?,?,?,0,?,1)", (f"pedas-{i+1}", "pedas", name, i))
+    for cat in ("Makanan", "Lauk"):
+        n = c.execute("SELECT COALESCE(MAX(sort),-1)+1 FROM category_modifier_groups WHERE category=?", (cat,)).fetchone()[0]
+        c.execute("INSERT OR IGNORE INTO category_modifier_groups(category,group_id,sort) VALUES(?,?,?)", (cat, "pedas", n))
+    for p in c.execute("SELECT id FROM products WHERE custom_modifiers=1 AND category IN ('Makanan','Lauk')").fetchall():
+        n = c.execute("SELECT COALESCE(MAX(sort),-1)+1 FROM product_modifier_groups WHERE product_id=?", (p["id"],)).fetchone()[0]
+        c.execute("INSERT OR IGNORE INTO product_modifier_groups(product_id,group_id,sort) VALUES(?,?,?)", (p["id"], "pedas", n))
+    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('menu_patch_v5','1')")
+
+
 def init_db():
     with db() as c:
         c.execute("PRAGMA journal_mode = WAL")
@@ -494,6 +516,7 @@ def init_db():
                           (str(p["id"]), p["name"], p.get("category", "Lainnya"), p.get("variant", ""),
                            p.get("price"), image_key, now(), p.get("description", ""), 1 if p.get("featured") else 0))
         apply_menu_patch(c)
+        apply_patch_v5(c)
 
 
 # --------------------------------------------------------------------------- pengaturan & audit
@@ -816,6 +839,8 @@ def r_settings_put(req):
             v = str(v)
             if v not in ("58", "80"):
                 raise ApiError(400, "Lebar struk harus 58 atau 80 mm.")
+        elif key == "qris_image":
+            continue    # hanya lewat /api/settings/qris
         elif key == "public_base_url":
             v = str(v).strip().rstrip("/")[:120]
             if v and not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:\d{1,5})?", v):
@@ -960,33 +985,67 @@ def r_product_modifiers(req):
     return {"id": pid, "mode": mode, "group_ids": group_ids if mode == "custom" else []}
 
 
-@route("POST", r"/api/products/([^/]+)/photo", "owner")
-def r_product_photo(req):
-    """Terima foto JPEG (sudah dikecilkan oleh peramban) sebagai data URL."""
-    pid = unquote(req.match.group(1))
-    raw = str(req.data.get("image", ""))
-    m = re.fullmatch(r"data:image/jpeg;base64,([A-Za-z0-9+/=\s]+)", raw)
+def decode_jpeg_upload(raw):
+    """Data URL JPEG (sudah dikecilkan oleh peramban) → bytes yang divalidasi."""
+    import base64
+    m = re.fullmatch(r"data:image/jpeg;base64,([A-Za-z0-9+/=\s]+)", str(raw or ""))
     if not m:
         raise ApiError(400, "Foto harus berformat JPEG.")
-    import base64
     try:
         blob = base64.b64decode(m.group(1), validate=False)
     except Exception:
         raise ApiError(400, "Foto tidak bisa dibaca.")
     if len(blob) < 1000 or len(blob) > 700_000 or blob[:3] != b"\xff\xd8\xff":
         raise ApiError(400, "Foto tidak valid atau terlalu besar (maksimal sekitar 700 KB).")
+    return blob
+
+
+def save_upload(blob):
     key = "up-" + secrets.token_hex(6)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    (UPLOAD_DIR / f"{key}.jpg").write_bytes(blob)
+    return key
+
+
+@route("POST", r"/api/products/([^/]+)/photo", "owner")
+def r_product_photo(req):
+    pid = unquote(req.match.group(1))
+    blob = decode_jpeg_upload(req.data.get("image"))
     with db(write=True) as c:
         p = c.execute("SELECT id,name,image_key FROM products WHERE id=?", (pid,)).fetchone()
         if not p:
             raise ApiError(404, "Menu tidak ditemukan.")
-        (UPLOAD_DIR / f"{key}.jpg").write_bytes(blob)
+        key = save_upload(blob)
         c.execute("UPDATE products SET image_key=?,updated_at=? WHERE id=?", (key, now(), pid))
         if str(p["image_key"]).startswith("up-"):
             (UPLOAD_DIR / f"{p['image_key']}.jpg").unlink(missing_ok=True)
         audit(c, req.user, "ganti_foto_menu", p["name"])
     return {"id": pid, "image_key": key}
+
+
+@route("POST", r"/api/settings/qris", "owner")
+def r_qris_upload(req):
+    """Gambar QRIS statis toko, ditampilkan ke pelanggan di halaman status pesanan (kasir tetap memeriksa pembayaran)."""
+    blob = decode_jpeg_upload(req.data.get("image"))
+    with db(write=True) as c:
+        old = get_settings(c)["qris_image"]
+        key = save_upload(blob)
+        c.execute("INSERT INTO settings(key,value) VALUES('qris_image',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key,))
+        if old.startswith("up-"):
+            (UPLOAD_DIR / f"{old}.jpg").unlink(missing_ok=True)
+        audit(c, req.user, "ganti_qris_toko")
+    return {"qris_image": key}
+
+
+@route("DELETE", r"/api/settings/qris", "owner")
+def r_qris_delete(req):
+    with db(write=True) as c:
+        old = get_settings(c)["qris_image"]
+        c.execute("DELETE FROM settings WHERE key='qris_image'")
+        if old.startswith("up-"):
+            (UPLOAD_DIR / f"{old}.jpg").unlink(missing_ok=True)
+        audit(c, req.user, "hapus_qris_toko")
+    return {"qris_image": ""}
 
 
 # --------------------------------------------------------------------------- rute: varian
@@ -1542,7 +1601,14 @@ def r_summary(req):
                              SUM(active=1 AND price IS NULL) no_price, SUM(active=1 AND available=0) sold_out
                              FROM products""").fetchone()
         open_shifts = [shift_report(c, r) for r in c.execute("SELECT * FROM shifts WHERE closed_at IS NULL").fetchall()]
-    return {"today": today, "timezone": TZ_NAME, "today_transactions": day["n"], "today_total": day["total"],
+    with db() as c2:
+        setup = {"users": c2.execute("SELECT COUNT(*) FROM users WHERE active=1").fetchone()[0],
+                 "tables": c2.execute("SELECT COUNT(*) FROM dining_tables WHERE active=1").fetchone()[0],
+                 "no_photo": c2.execute("SELECT COUNT(*) FROM products WHERE active=1 AND image_key='none'").fetchone()[0],
+                 "qris": bool(get_settings(c2)["qris_image"]),
+                 "named": c2.execute("SELECT 1 FROM settings WHERE key='outlet_name'").fetchone() is not None,
+                 "backups": len(list_backups())}
+    return {"setup": setup, "today": today, "timezone": TZ_NAME, "today_transactions": day["n"], "today_total": day["total"],
             "series": series, "low_stock": low, "top_today": top, "open_shifts": open_shifts,
             "menus": stats["menus"] or 0, "untracked": stats["untracked"] or 0, "tracked": stats["tracked"] or 0,
             "no_cost": stats["no_cost"] or 0, "no_price": stats["no_price"] or 0, "sold_out": stats["sold_out"] or 0}
@@ -1614,11 +1680,9 @@ def r_audit(req):
         return {"items": rows(c, "SELECT at,user_name,action,detail FROM audit_log ORDER BY id DESC LIMIT 100")}
 
 
-@route("GET", r"/api/admin/backup", "owner")
-def r_backup(req):
-    """Cadangan = berkas .zip berisi database (salinan konsisten) + foto unggahan."""
+def make_backup_bytes():
+    """Cadangan = .zip berisi database (salinan konsisten lewat API backup SQLite) + foto unggahan."""
     import zipfile
-    stamp = datetime.now(TZ).strftime("%Y%m%d-%H%M")
     with tempfile.TemporaryDirectory() as tmp:
         target = Path(tmp) / "kopi-sawah.sqlite3"
         src = sqlite3.connect(DB_PATH)
@@ -1633,11 +1697,73 @@ def r_backup(req):
             if UPLOAD_DIR.is_dir():
                 for f in sorted(UPLOAD_DIR.glob("up-*.jpg")):
                     z.write(f, f"uploads/{f.name}")
-        data = buf.getvalue()
+        return buf.getvalue()
+
+
+def list_backups():
+    if not BACKUP_DIR.is_dir():
+        return []
+    out = []
+    for f in sorted(BACKUP_DIR.glob("auto-*.zip"), reverse=True):
+        st = f.stat()
+        out.append({"name": f.name, "size": st.st_size, "at": datetime.fromtimestamp(st.st_mtime, TZ).isoformat(timespec="seconds")})
+    return out
+
+
+def run_scheduled_backup(tag=None):
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    name = f"auto-{tag or datetime.now(TZ).strftime('%Y%m%d')}.zip"
+    tmp = BACKUP_DIR / (name + ".part")
+    tmp.write_bytes(make_backup_bytes())
+    tmp.replace(BACKUP_DIR / name)
+    for old in sorted(BACKUP_DIR.glob("auto-*.zip"), reverse=True)[BACKUP_KEEP:]:
+        old.unlink(missing_ok=True)
+    return name
+
+
+def backup_loop():
+    """Cadangan harian otomatis (setelah jam BACKUP_HOUR) + satu saat start bila belum ada cadangan hari ini."""
+    time.sleep(20)
+    while True:
+        try:
+            today = datetime.now(TZ).strftime("%Y%m%d")
+            if not (BACKUP_DIR / f"auto-{today}.zip").exists() and (datetime.now(TZ).hour >= BACKUP_HOUR or not list_backups()):
+                print("Cadangan otomatis:", run_scheduled_backup())
+        except Exception:
+            traceback.print_exc()
+        time.sleep(600)
+
+
+@route("GET", r"/api/admin/backup", "owner")
+def r_backup(req):
+    stamp = datetime.now(TZ).strftime("%Y%m%d-%H%M")
+    data = make_backup_bytes()
     with db(write=True) as c:
         audit(c, req.user, "unduh_cadangan")
     return Resp(200, body=data, content_type="application/zip",
                 headers=[("Content-Disposition", f'attachment; filename="kopi-sawah-cadangan-{stamp}.zip"')])
+
+
+@route("GET", r"/api/admin/backups", "owner")
+def r_backups(req):
+    return {"items": list_backups(), "keep": BACKUP_KEEP, "hour": BACKUP_HOUR}
+
+
+@route("POST", r"/api/admin/backups/run", "owner")
+def r_backup_run(req):
+    name = run_scheduled_backup(datetime.now(TZ).strftime("%Y%m%d"))
+    with db(write=True) as c:
+        audit(c, req.user, "cadangan_sekarang", name)
+    return {"name": name, "items": list_backups()}
+
+
+@route("GET", r"/api/admin/backups/(auto-\d{8}\.zip)", "owner")
+def r_backup_file(req):
+    f = BACKUP_DIR / req.match.group(1)
+    if not f.is_file():
+        raise ApiError(404, "Cadangan tidak ditemukan.")
+    return Resp(200, body=f.read_bytes(), content_type="application/zip",
+                headers=[("Content-Disposition", f'attachment; filename="{f.name}"')])
 
 
 # --------------------------------------------------------------------------- meja, QR & pesanan pelanggan
@@ -1710,7 +1836,7 @@ def r_public_menu(req):
     rank = {k: i for i, k in enumerate(CATEGORY_ORDER)}
     items.sort(key=lambda x: (rank.get(x["category"], 99), x["category"], -x["featured"], x["name"].lower(), x["variant"]))
     return {"table": {"label": table["label"]}, "items": items,
-            "settings": {k: st[k] for k in ("outlet_name", "outlet_address", "outlet_contact", "tax_percent", "service_percent", "rounding")}}
+            "settings": {k: st[k] for k in ("outlet_name", "outlet_address", "outlet_contact", "tax_percent", "service_percent", "rounding", "qris_image")}}
 
 
 def order_detail(c, oid):
@@ -1919,6 +2045,28 @@ def r_order_status(req):
         return {"order": order_detail(c, oid)}
 
 
+@route("POST", r"/api/orders/move")
+def r_orders_move(req):
+    """Pindahkan semua pesanan terbuka sebuah meja ke meja lain (pindah tempat duduk atau gabung bill)."""
+    d = req.data
+    ids = d.get("order_ids")
+    if not isinstance(ids, list) or not ids or len(ids) > 30:
+        raise ApiError(400, "Pilih pesanan yang akan dipindahkan.")
+    with db(write=True) as c:
+        target = c.execute("SELECT * FROM dining_tables WHERE id=? AND active=1", (d.get("to_table_id"),)).fetchone()
+        if not target:
+            raise ApiError(404, "Meja tujuan tidak ditemukan.")
+        moved = []
+        for oid in dict.fromkeys(str(x) for x in ids):
+            o = c.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+            if not o or o["status"] not in ORDER_OPEN:
+                raise ApiError(409, f"Pesanan {oid} tidak bisa dipindahkan (sudah dibayar/dibatalkan).")
+            c.execute("UPDATE orders SET table_id=?,table_label=?,updated_at=? WHERE id=?", (target["id"], target["label"], now(), oid))
+            moved.append(f"{oid}: {o['table_label']}→{target['label']}")
+        audit(c, req.user, "pindah_meja", "; ".join(moved))
+    return {"ok": True, "to": target["label"]}
+
+
 @route("POST", r"/api/calls/(\d+)/done")
 def r_call_done(req):
     with db(write=True) as c:
@@ -1994,6 +2142,8 @@ class Handler(BaseHTTPRequestHandler):
             rel = "index.html"
         elif re.fullmatch(r"/m/[A-Za-z0-9_-]{4,40}", path):
             rel = "order.html"          # halaman pesan lewat QR meja; kode meja dicek oleh API
+        elif path == "/sw.js":
+            rel = "sw.js"               # service worker harus dilayani dari akar agar cakupannya seluruh situs
         elif path.startswith("/static/"):
             rel = path.removeprefix("/static/")
         elif re.fullmatch(r"/media/up-[0-9a-f]{12}\.jpg", path):
@@ -2012,7 +2162,8 @@ class Handler(BaseHTTPRequestHandler):
         cache = "public, max-age=604800" if is_image else "no-cache"
         if self.headers.get("If-None-Match") == etag:
             return self.send_bytes(304, b"", mime, [("ETag", etag)], cache)
-        self.send_bytes(200, data, mime, [("ETag", etag)], cache)
+        extra = [("ETag", etag)] + ([("Service-Worker-Allowed", "/")] if path == "/sw.js" else [])
+        self.send_bytes(200, data, mime, extra, "no-cache" if path == "/sw.js" else cache)
 
     def dispatch(self, method):
         url = urlparse(self.path)
@@ -2080,6 +2231,8 @@ def main():
     if not has_users and not TANPA_LOGIN:
         print(f"PENYIAPAN AWAL: buka aplikasi, lalu masukkan KODE PENYIAPAN: {SETUP_CODE}")
     print("Port ini hanya untuk nginx/lokal. Jangan dibuka langsung ke internet.")
+    print(f"Cadangan otomatis harian: {BACKUP_DIR} (simpan {BACKUP_KEEP} terakhir, setelah jam {BACKUP_HOUR}:00)")
+    threading.Thread(target=backup_loop, daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

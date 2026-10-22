@@ -188,6 +188,7 @@ async function refresh() {
 function fillStatus(s) {
   const pend = (k) => (st.calls || []).some(c => c.kind === k);
   $('.sheet-b', s).innerHTML = (st.orders.length ? st.orders.map(orderCard).join('') : '<div class="empty">Belum ada pesanan.<br>Pilih menu lalu kirim pesanan Anda.</div>')
+    + (st.settings.qris_image && st.orders.some(x => ['accepted', 'ready', 'served'].includes(x.status)) ? `<button class="btn gold block" style="margin-bottom:10px" data-act="qris">💳 Bayar dengan QRIS</button>` : '')
     + `<div class="notice">Pembayaran dilakukan di kasir. Butuh bantuan?</div>
     <div class="row" style="display:flex;gap:8px"><button class="btn ghost" style="flex:1" data-act="call" data-k="waiter" ${pend('waiter') ? 'disabled' : ''}>${pend('waiter') ? '✓ Pelayan dipanggil' : '🙋 Panggil pelayan'}</button><button class="btn ghost" style="flex:1" data-act="call" data-k="bill" ${pend('bill') ? 'disabled' : ''}>${pend('bill') ? '✓ Bill diminta' : '🧾 Minta bill'}</button></div>`;
 }
@@ -198,6 +199,13 @@ function statusSheet(fresh) {
   refresh();
 }
 
+function qrisSheet() {
+  const due = st.orders.filter(x => ['accepted', 'ready', 'served'].includes(x.status)).reduce((a, x) => a + x.subtotal, 0);
+  openSheet('Bayar dengan QRIS', `<div class="center"><img src="${imgSrc(st.settings.qris_image)}" alt="QRIS toko" style="width:min(300px,100%);border:1px solid var(--line);border-radius:12px;background:#fff"></div>
+    <div style="margin-top:12px">${sumHTML(due)}</div>
+    <div class="notice"><b>Cara bayar:</b> scan QRIS di atas dengan aplikasi bank/e-wallet, masukkan jumlah sesuai total, lalu <b>tunjukkan bukti pembayaran ke kasir</b>. Pesanan dianggap lunas setelah kasir memeriksa.</div>`, '<button class="btn" data-x2>Tutup</button>', s0 => { $('[data-x2]', s0).onclick = closeSheet; });
+}
+
 /* ---------- aksi ---------- */
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-act]'); if (!el || el.disabled) return;
@@ -205,6 +213,7 @@ document.addEventListener('click', async e => {
   if (a === 'cat') { st.cat = el.dataset.c; drawCats(); drawList(); window.scrollTo(0, 0); }
   else if (a === 'item') { const p = prod(el.dataset.id); if (p.sold_out) return toast(`${p.name} sedang habis`, 'bad'); if (p.groups.length) itemSheet(p); else { add(p, [], 1); toast(`${p.name} ditambahkan`, 'ok'); } }
   else if (a === 'cart') cartSheet();
+  else if (a === 'qris') qrisSheet();
   else if (a === 'status') statusSheet(false);
   else if (a === 'hide') { st.ids = st.ids.filter(x => x !== el.dataset.id); saveIds(); st.orders = st.orders.filter(o => o.id !== el.dataset.id); drawBadge(); fillStatus(st.sheet.el); }
   else if (a === 'cancel') { try { await api(`/api/public/orders/${encodeURIComponent(el.dataset.id)}/cancel`, { t: TOKEN }); toast('Pesanan dibatalkan', 'ok'); await refresh(); } catch (err) { toast(err.message, 'bad'); refresh(); } }

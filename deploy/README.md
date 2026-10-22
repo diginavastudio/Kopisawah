@@ -48,6 +48,12 @@ Yang perlu diketahui:
 - Bila foto QR sebuah meja tersebar/disalahgunakan: **Ubah / ganti kode** pada meja itu, lalu cetak ulang.
 - Foto menu yang diunggah disimpan di `/var/lib/kopi-sawah/uploads/` (di luar kode) dan ikut dalam cadangan `.zip`.
 
+## Fitur Ronde 5 yang perlu diketahui saat deploy
+
+- **Cadangan otomatis** ditulis ke `/var/lib/kopi-sawah/backups/` (14 terakhir). Salin ke luar server secara berkala (mis. unduh dari *Kelola → Pengaturan → Cadangan otomatis*).
+- **Mode offline** memakai service worker: perlu **HTTPS** (sudah) dan kasir membuka aplikasi online sekali di perangkat itu. Setelah update kode, tutup-buka tab kasir (atau muat ulang) agar versi baru aktif.
+- **Gambar QRIS** dan **foto menu** disimpan di `/var/lib/kopi-sawah/uploads/` dan ikut cadangan `.zip`.
+
 ## Pemeriksaan cepat
 
 ```
