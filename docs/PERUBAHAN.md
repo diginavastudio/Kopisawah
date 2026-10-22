@@ -324,3 +324,61 @@ aplikasi menampilkan waktu pasang terakhir, mis. **“versi 22 Okt 2026, 07.19�
 - Perubahan hanya **berkas** (kode, HTML, foto). Perubahan **basis data** tidak ikut lewat GitHub.
 - Foto menu di-cache peramban 1 tahun; mengganti foto dengan nama berkas sama perlu *hard refresh*.
 - Jendela tayang maksimal ±1 menit — bukan instan. Kalau butuh instan, perlu *webhook* (belum dipasang).
+
+---
+
+# Ronde 5 — 22 Oktober 2026: PR #1 digabung TANPA login
+
+## 23. Apa yang digabung
+PR #1 (`claude/dreamy-fermat-ubf6xm`) digabung ke `main` lewat cabang `tanpa-login`:
+kasir bershift, pajak/PB1 + service charge + pembulatan, diskon (batas nominal/%, khusus pemilik),
+HPP & laba kotor, VOID nota dengan alasan, audit log, ekspor CSV, tata letak baru
+(`static/app.css` + `static/app.js` + kerangka `static/index.html`), serta `tests/` (API + cek peramban).
+
+## 24. Login/PIN: kode ada, gerbang dimatikan (sesuai permintaan pemilik)
+- Env baru di unit: **`KOPI_SAWAH_TANPA_LOGIN=1`**.
+- Saat aktif, server menyiapkan satu akun otomatis **“Kasir” dengan peran `pemilik`**, lalu setiap
+  permintaan tanpa cookie sesi dianggap dilakukan akun itu. Jadi semua fitur (termasuk diskon, void,
+  laporan pemilik, kelola pengguna) terbuka **tanpa PIN dan tanpa kode penyiapan**.
+- `/api/auth/status` mengirim `tanpa_login: true`; antarmuka menyembunyikan tombol **Keluar**.
+- Alasan teknis akun dibuat sungguhan (bukan objek semu): tabel `shifts.user_id` punya kunci asing ke
+  `users.id`, dan `audit_log` mencatat nama pelaku.
+
+### Mengaktifkan login nanti (kalau desain sudah dinyatakan selesai)
+```
+systemctl edit kopi-sawah.service      # tambahkan: [Service] Environment=KOPI_SAWAH_TANPA_LOGIN=0
+systemctl restart kopi-sawah.service
+journalctl -u kopi-sawah -n 20 --no-pager | grep "KODE PENYETAPAN"
+```
+Lalu buka situs, masukkan kode penyiapan itu, buat akun pemilik (PIN 6–8 angka), dan tambah akun kasir
+(PIN 4–8 angka) dari menu **Kelola → Pengguna**. Akun otomatis “Kasir” boleh dinonaktifkan setelahnya.
+Tanpa mengubah env, gerbang login tetap terbuka.
+
+## 25. Dampak ke basis data
+Migrasi otomatis saat layanan pertama kali dijalankan: **+15 kolom** di `sales`
+(`subtotal`, `discount_amount`, `discount_reason`, `service_amount`, `tax_amount`, `rounding_amount`,
+`amount_paid`, `change_amount`, `order_type`, `table_no`, `user_id`, `shift_id`, `void_reason`,
+`voided_by`, `voided_at`), kolom `cost`/`available` di `products`, `cost_snapshot` di `sale_items`,
+serta tabel baru `users`, `sessions`, `shifts`, `settings`, `audit_log`.
+Data lama aman: **124 menu tetap**, 0 transaksi. Cadangan sebelum migrasi:
+`/root/backup-kopi-sawah/20261022-011345-sebelum-pr1/` (berkas DB + app.py + index.html + unit).
+
+## 26. Catatan operasional
+- Skrip auto-deploy tetap hidup di **`/usr/local/sbin/kopi-sawah-deploy.sh`** karena PR menghapus
+  `deploy/` versi lama dari repo. Unit timer menunjuk ke jalur itu.
+- Skrip pengunci darurat `deploy/lock-review-readonly.sh` sekarang hanya mengganti konfigurasi nginx
+  (tidak lagi menukar halaman), jadi tetap berfungsi.
+- Struk 58 mm tersedia: setelah pembayaran muncul panel "Pembayaran berhasil" dengan tombol
+  **Cetak struk** dan **Tiket dapur**.
+- Pembayaran tunai mencatat `amount_paid` dan `change_amount` (kembalian) — tidak lagi hanya label.
+
+## 27. Uji setelah penggabungan (22 Okt 2026)
+- Staging (port 18794, DB baru + salinan DB produksi): **13/13 lulus** — masuk otomatis sebagai pemilik,
+  buka kasir, simpan pesanan, tolak duplikat, laporan, struk, tutup kasir (selisih 0), migrasi DB aman.
+- API produksi: **5/5 lulus** — buka kasir, pesanan pertama tersimpan, kiriman ulang dikenali
+  `duplicate: true`, hanya 1 transaksi tercatat, laporan bersih setelah data uji dihapus.
+- Peramban (situs live): Beranda menyapa “Halo, Kasir”, tanpa layar login; kasir → varian → bayar tunai
+  Rp20.000 untuk nota Rp18.000 → kembalian Rp2.000; struk tampil dengan nomor nota, waktu WIB, rincian
+  varian; halaman Kas menampilkan laporan sementara (uang awal 200.000 + tunai 18.000 = 218.000) dan
+  tutup kasir menghasilkan “Uang laci cocok ✓” dengan selisih 0.
+- Data uji dibersihkan kembali: **0 transaksi, 0 shift, 124 menu**, satu akun `Kasir` (pemilik).
