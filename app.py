@@ -38,6 +38,9 @@ PORT = int(os.environ.get("KOPI_SAWAH_PORT", "8791"))
 REQUIRE_ORIGIN = os.environ.get("KOPI_SAWAH_REQUIRE_ORIGIN", "0") == "1"
 REQUIRE_STOCK = os.environ.get("KOPI_SAWAH_REQUIRE_STOCK", "0") == "1"
 TZ_NAME = os.environ.get("KOPI_SAWAH_TZ", "Asia/Jakarta").strip() or "Asia/Jakarta"
+# Mode tanpa login: setiap permintaan dianggap dilakukan pemilik (sesuai permintaan pemilik,
+# login/PIN ditunda sampai desain web dinyatakan selesai).
+TANPA_LOGIN = os.environ.get("KOPI_SAWAH_TANPA_LOGIN", "0") == "1"
 try:
     TZ = ZoneInfo(TZ_NAME)
 except Exception:
@@ -410,6 +413,27 @@ def user_for_token(c, token):
 
 
 SETUP_CODE = os.environ.get("KOPI_SAWAH_SETUP_CODE", "").strip() or "".join(secrets.choice("0123456789") for _ in range(8))
+NAMA_TANPA_LOGIN = "Kasir (tanpa login)"
+PENGGUNA_TANPA_LOGIN = None
+
+
+def pastikan_pengguna_tanpa_login():
+    """Siapkan satu akun pemilik otomatis agar mode tanpa login tetap punya user_id
+    (dipakai shift, audit, dan transaksi) tanpa perlu PIN."""
+    global PENGGUNA_TANPA_LOGIN
+    salt = b"tanpa-login"
+    with db(write=True) as c:
+        row = c.execute("SELECT id,role,active FROM users WHERE name=?", (NAMA_TANPA_LOGIN,)).fetchone()
+        if row is None:
+            cur = c.execute("INSERT INTO users(name,role,pin_salt,pin_hash,active,created_at) VALUES(?,?,?,?,1,?)",
+                            (NAMA_TANPA_LOGIN, "owner", salt, hash_pin("000000", salt), now()))
+            uid = cur.lastrowid
+        else:
+            uid = row["id"]
+            if row["role"] != "owner" or not row["active"]:
+                c.execute("UPDATE users SET role='owner',active=1 WHERE id=?", (uid,))
+    PENGGUNA_TANPA_LOGIN = {"id": uid, "name": NAMA_TANPA_LOGIN, "role": "owner", "active": 1}
+    return PENGGUNA_TANPA_LOGIN
 
 
 def cookie_header(token, secure, max_age):
@@ -1431,6 +1455,8 @@ class Handler(BaseHTTPRequestHandler):
             if role != "public" or fn is r_auth_status:
                 with db() as c:
                     req.user = user_for_token(c, self.session_token())
+                if not req.user and TANPA_LOGIN and PENGGUNA_TANPA_LOGIN:
+                    req.user = PENGGUNA_TANPA_LOGIN
             if role != "public" and not req.user:
                 raise ApiError(401, "Silakan masuk dulu.")
             if role == "owner" and req.user["role"] != "owner":
@@ -1459,12 +1485,15 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     init_db()
+    if TANPA_LOGIN:
+        u = pastikan_pengguna_tanpa_login()
+        print(f"MODE TANPA LOGIN aktif: semua permintaan dianggap {u['name']} (peran pemilik).")
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     with db() as c:
         has_users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0] > 0
     print(f"Kopi Sawah: http://127.0.0.1:{PORT}  (zona waktu {TZ_NAME})")
     print(f"Database: {DB_PATH}")
-    if not has_users:
+    if not has_users and not TANPA_LOGIN:
         print(f"PENYIAPAN AWAL: buka aplikasi, lalu masukkan KODE PENYIAPAN: {SETUP_CODE}")
     print("Port ini hanya untuk nginx/lokal. Jangan dibuka langsung ke internet.")
     try:
