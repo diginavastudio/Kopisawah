@@ -209,3 +209,62 @@ git push
 - Struk mencetak label "struk uji coba · bukan bukti pembayaran" selama belum ada pajak/QRIS resmi.
 - Belum ada: pajak/PB1, service charge, diskon, retur/void, dan login (login sengaja ditunda atas
   permintaan pemilik sampai desain web selesai).
+
+
+---
+
+# Ronde 4 — 23 Oktober 2026: alur GitHub → web
+
+## 14. Apakah perubahan di GitHub langsung tampil di web?
+**Tidak otomatis.** Web menyajikan berkas dari `/opt/kopi-sawah` di server; GitHub hanya salinan
+riwayat. Tanpa langkah pemasangan, perubahan yang dibuat di GitHub **tidak** terlihat di situs.
+
+Sekarang sudah tersedia skrip pemasangan:
+
+```
+/opt/kopi-sawah/deploy/tarik-dari-github.sh          # tarik + pasang
+/opt/kopi-sawah/deploy/tarik-dari-github.sh --cek    # hanya periksa, tidak mengubah apa pun
+```
+
+Yang dilakukan skrip:
+1. `git fetch` lalu bandingkan commit server vs `origin/main`; kalau sama → selesai (aman diulang).
+2. Menolak memasang bila ada perubahan lokal yang belum di-commit di server (agar tidak tertimpa).
+3. Menarik hanya dengan **fast-forward**; kalau riwayat bercabang → berhenti dan minta diselesaikan manual.
+4. Memeriksa sintaks `app.py` (`py_compile`) dan JavaScript di `static/index.html` (`node --check`).
+5. `systemctl restart kopi-sawah.service` lalu menunggu `/api/health` sehat (maks 20 detik).
+6. Gagal di langkah mana pun → **rollback otomatis** ke commit sebelumnya dan layanan dijalankan ulang.
+7. Menulis penanda versi `/var/lib/kopi-sawah/VERSION` (commit + waktu pasang) yang dibaca
+   `/api/health` dan ditampilkan sebagai lencana **“versi …”** di kepala halaman.
+
+## 15. Mode otomatis (opsional, belum diaktifkan)
+Unit tersedia di `deploy/kopi-sawah-deploy.service` dan `deploy/kopi-sawah-deploy.timer`
+(cek tiap 3 menit). Untuk mengaktifkan:
+
+```
+install -m0644 /opt/kopi-sawah/deploy/kopi-sawah-deploy.service /etc/systemd/system/
+install -m0644 /opt/kopi-sawah/deploy/kopi-sawah-deploy.timer   /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now kopi-sawah-deploy.timer
+journalctl -u kopi-sawah-deploy.service -n 20 --no-pager
+```
+
+Selama belum diaktifkan, perubahan dari GitHub dipasang **saat diminta** (jalankan skrip di atas).
+
+## 16. Perilaku saat dua sisi berubah bersamaan
+Kalau server dan GitHub sama-sama punya commit baru, `git push` dari server akan ditolak
+(`fetch first`). Urutan yang benar:
+
+```
+cd /opt/kopi-sawah
+git fetch origin && git rebase origin/main    # letakkan commit server di atas commit GitHub
+git push
+```
+
+Kalau hanya ingin mengambil versi GitHub dan membuang perubahan lokal di server: `git reset --hard origin/main`
+(hati-hati, perubahan lokal hilang).
+
+## 17. Uji alur (dilakukan 23 Okt 2026)
+- Commit dibuat dari salinan lain (meniru "menambah fitur di GitHub") → server belum berubah.
+- `tarik-dari-github.sh` mendeteksi versi baru, menarik, memeriksa sintaks, restart, dan menulis penanda versi.
+- `/api/health` melaporkan `version.commit = 1c1eb89` dan lencana versi tampil di kepala halaman.
+- Uji kegagalan: skrip pernah menolak deploy karena `node --check` gagal (berkas sementara tanpa akhiran
+  `.js`), lalu **rollback otomatis** berjalan dan situs tetap 200 — jalur pengaman terbukti bekerja.

@@ -1,0 +1,17 @@
+[Unit]
+Description=Tarik versi terbaru Kopi Sawah dari GitHub lalu pasang
+Documentation=file:/opt/kopi-sawah/docs/PERUBAHAN.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/kopi-sawah/deploy/tarik-dari-github.sh
+TimeoutStartSec=180
+Nice=10
+IOSchedulingClass=best-effort
+
+[Install]
+WantedBy=multi-user.target
