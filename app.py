@@ -30,6 +30,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent
+
+# PWA: manifest perlu tipe khusus agar dikenali peramban
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 STATIC = ROOT / "static"
 DATA = ROOT / "data"
 CATALOG = DATA / "catalog.json"
@@ -2330,6 +2333,8 @@ class Handler(BaseHTTPRequestHandler):
             rel = "order.html"          # halaman pesan lewat QR meja; kode meja dicek oleh API
         elif path == "/sw.js":
             rel = "sw.js"               # service worker harus dilayani dari akar agar cakupannya seluruh situs
+        elif path in ("/manifest.webmanifest", "/manifest.json"):
+            rel = "manifest.webmanifest"   # PWA: manifest harus di akar situs
         elif path.startswith("/static/"):
             rel = path.removeprefix("/static/")
         elif re.fullmatch(r"/media/up-[0-9a-f]{12}\.jpg", path):

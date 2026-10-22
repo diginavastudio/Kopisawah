@@ -6,6 +6,13 @@
 <meta name="theme-color" content="#363a10">
 <title>Kopi Sawah — Kasir</title>
 <link rel="icon" href="/static/images/logo-badge.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/images/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kopi Sawah">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="application-name" content="Kopi Sawah">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -14,5 +21,36 @@
 <noscript><p style="padding:24px">Aplikasi kasir ini memerlukan JavaScript. Aktifkan JavaScript di peramban Anda.</p></noscript>
 <script src="/static/vendor/qrcode.js"></script>
 <script src="/static/app.js"></script>
+<script>
+/* Tombol "Pasang aplikasi": hanya muncul bila peramban mengizinkan pemasangan
+   (Chrome/Edge di Android & desktop). Safari iPhone tidak punya event ini, jadi diberi petunjuk. */
+(function () {
+  var sudahTerpasang = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  if (sudahTerpasang) return;
+  var tombol = document.createElement('button');
+  tombol.type = 'button';
+  tombol.textContent = '⬇ Pasang aplikasi';
+  tombol.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:9999;display:none;padding:11px 15px;border:1px solid #6b5f2c;border-radius:999px;background:#363a10;color:#e9d27a;font:600 14px system-ui,sans-serif;box-shadow:0 6px 20px #0006;cursor:pointer';
+  var promptEvent = null;
+  var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault(); promptEvent = e; tombol.style.display = 'block';
+  });
+  tombol.addEventListener('click', function () {
+    if (promptEvent) {
+      promptEvent.prompt();
+      try { promptEvent.userChoice.finally(function () { promptEvent = null; tombol.style.display = 'none'; }); }
+      catch (err) { promptEvent = null; tombol.style.display = 'none'; }
+      return;
+    }
+    alert('Cara pasang di iPhone/iPad:\n1. Buka dengan Safari\n2. Ketuk tombol Bagikan (kotak dengan panah ke atas)\n3. Pilih "Tambahkan ke Layar Utama"\n4. Beri nama "Kopi Sawah" lalu ketuk Tambah.');
+  });
+  window.addEventListener('appinstalled', function () { tombol.style.display = 'none'; });
+  document.addEventListener('DOMContentLoaded', function () {
+    if (ios) { tombol.textContent = '📲 Pasang di iPhone'; tombol.style.display = 'block'; }
+    document.body.appendChild(tombol);
+  });
+})();
+</script>
 </body>
 </html>

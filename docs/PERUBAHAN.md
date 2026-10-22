@@ -473,3 +473,35 @@ jenis pesanan, kategori/menu terlaris, dan **Operasional saat ini**.
 Panel ini ada di kode cabang PR. Setiap kali menggabungkan versi baru dari cabang PR, tambalan ini
 harus **dipasang ulang** (dua baris di `static/app.js`):
 `const guide = '';` dan `const attention = '';`.
+
+
+---
+
+# Ronde 10 — 23 Oktober 2026: bisa dipasang di HP (PWA)
+
+## 37. Yang ditambahkan
+- **`static/manifest.webmanifest`**: nama “Kopi Sawah — Kasir”, `display: standalone`, `start_url /?sumber=pasang`,
+  `theme_color #363a10`, `background_color #12150c`, 3 ikon (192 any, 512 any, 512 maskable) + 2 pintasan
+  (Kasir, Pesanan Meja).
+- **Ikon** dibuat dari logo toko: `icon-192.png`, `icon-512.png`, `icon-512-maskable.png` (latar tema,
+  aman untuk ikon bulat), `apple-touch-icon.png` 180×180 untuk iOS.
+- **`static/index.html`**: tautan manifest, apple-touch-icon, meta `apple-mobile-web-app-*`,
+  dan tombol mengambang **“⬇ Pasang aplikasi”** (memakai `beforeinstallprompt`; di iPhone tombol berubah
+  jadi petunjuk “Bagikan → Tambahkan ke Layar Utama”).
+- **`app.py`**: rute `/manifest.webmanifest` (dan `/manifest.json`) dilayani dari akar dengan tipe
+  `application/manifest+json`; sebelum ini jalur non-`/static/` ditolak 404.
+- **`static/sw.js`**: cache shell ditambah manifest + ketiga ikon, supaya tampilan tetap bisa dibuka offline.
+
+## 38. Hasil uji (langsung di situs publik)
+- `/manifest.webmanifest` → **200 `application/manifest+json`** 1.383 B; manifest terbaca:
+  `name “Kopi Sawah — Kasir”`, `display standalone`, `start_url /?sumber=pasang`.
+- Ikon 192 / 512 / 512-maskable → **200 image/png**, ukuran sesuai.
+- Service worker **terdaftar** (1 registrasi), situs **HTTPS** → syarat pemasangan Chrome terpenuhi.
+- Halaman utama 200 dengan `<link rel=manifest>` dan meta iOS.
+
+## 39. Catatan
+- Aplikasi yang sudah dipasang membuka layar penuh (tanpa address bar) dan tetap memakai data server.
+- Kalau logo toko diganti, ikon sebaiknya dibuat ulang — ikon disimpan sebagai berkas statis.
+- **Insiden singkat:** saat menambal `index.html`, berkas sempat kosong ±2 menit karena skrip saya menulis
+  langsung (truncate) sebelum gagal. Dipulihkan dari git (`git checkout -- static/index.html`), lalu
+  seluruh penulisan berikutnya memakai pola tulis-berkas-sementara + `os.replace`.

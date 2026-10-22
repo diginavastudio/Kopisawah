@@ -1,7 +1,8 @@
 /* Service worker Kopi Sawah: membuat aplikasi kasir tetap bisa DIBUKA saat internet putus.
  * Hanya menyimpan berkas tampilan (HTML/CSS/JS/gambar). Data (API) TIDAK pernah disimpan di sini. */
 const VER = 'ks-shell-v1';
-const SHELL = ['/', '/static/app.css', '/static/app.js', '/static/vendor/qrcode.js', '/static/images/logo-badge.png'];
+const SHELL = ['/', '/manifest.webmanifest', '/static/app.css', '/static/app.js', '/static/vendor/qrcode.js',
+  '/static/images/logo-badge.png', '/static/images/icon-192.png', '/static/images/icon-512.png', '/static/images/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VER).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
