@@ -288,17 +288,18 @@ const cartCount = () => state.cart.reduce((s, l) => s + l.qty, 0);
 /* hitungan yang sama dengan server (pembulatan setengah-ke-atas, bilangan bulat) */
 const toBp = s => Math.round(parseFloat(String(s ?? '0').replace(',', '.') || '0') * 100);
 const pctOf = (x, bp) => Math.floor((x * bp + 5000) / 10000);
-function calcTotals(subtotal, disc) {
-  const st = state.settings, base = subtotal - disc;
+function kdsScale() { const v = parseFloat(state.settings.kds_scale); return v > 0 ? v : 1.25; }
+function calcTotals(subtotal, disc, packing = 0) {
+  const st = state.settings, base = subtotal + packing - disc;
   const svc = pctOf(base, toBp(st.service_percent)), tax = pctOf(base + svc, toBp(st.tax_percent));
   const raw = base + svc + tax, step = parseInt(st.rounding, 10) || 0;
   let total = raw;
   if (step) { const r = Math.floor((raw + Math.floor(step / 2)) / step) * step; if (r > 0) total = r; }
-  return { subtotal, disc, svc, tax, round: total - raw, total };
+  return { subtotal, disc, packing, svc, tax, round: total - raw, total };
 }
 function sumRows(t) {
   const st = state.settings, row = (l, v, cls = '') => `<div class="r ${cls}"><span>${l}</span><span>${v}</span></div>`;
-  return row('Subtotal', rp(t.subtotal)) + (t.disc ? row('Diskon', '−' + rp(t.disc)) : '')
+  return row('Subtotal', rp(t.subtotal)) + (t.packing ? row('Biaya kemasan', rp(t.packing)) : '') + (t.disc ? row('Diskon', '−' + rp(t.disc)) : '')
     + (t.svc ? row(`Biaya layanan ${st.service_percent}%`, rp(t.svc)) : '') + (t.tax ? row(`Pajak ${st.tax_percent}%`, rp(t.tax)) : '')
     + (t.round ? row('Pembulatan', rp(t.round)) : '') + row('Total', rp(t.total), 'total');
 }
@@ -556,6 +557,11 @@ function checkoutSheet(src) {
   const st = state.settings; let sub = orderMode ? src.sub : cartSubtotal(); let selOrders = orderMode ? [...src.orders] : [];
   const canDisc = isOwner() || parseFloat(st.kasir_max_discount_percent) > 0;
   const co = { type: 'dine_in', table: '', note: '', cust: '', discOn: false, dtype: 'percent', dval: '', dreason: '', method: '', paid: null, reqId: (crypto.randomUUID ? crypto.randomUUID() : 'ks-' + Date.now() + '-' + Math.random().toString(16).slice(2)), busy: false };
+  const packFee = () => {
+    const fee = parseInt(st.packing_fee || '0', 10) || 0;
+    if (fee <= 0 || orderMode || co.type !== 'take_away') return 0;
+    return st.packing_fee_per === 'item' ? fee * state.cart.reduce((a, l) => a + l.qty, 0) : fee;
+  };
   const sh = openSheet({
     title: 'Pembayaran', wide: true,
     body: `<div id="coErr"></div>
@@ -583,7 +589,7 @@ function checkoutSheet(src) {
     return { amt };
   };
   const update = () => {
-    const d = discAmount(), t = calcTotals(sub, d.amt || 0);
+    const d = discAmount(), t = calcTotals(sub, d.amt || 0, packFee());
     $('#coSum', sh.el).innerHTML = sumRows(t) + (d.error ? `<div class="hint" style="color:var(--bad)">${esc(d.error)}</div>` : '');
     const cash = co.method === 'tunai';
     $('#coCash', sh.el).classList.toggle('hidden', !cash);
@@ -604,7 +610,7 @@ function checkoutSheet(src) {
     b.classList.toggle('on'); selOrders = src.orders.filter(o => $(`[data-oid="${CSS.escape(o.id)}"]`, sh.el).classList.contains('on'));
     sub = selOrders.reduce((a, o) => a + o.subtotal, 0); update();
   });
-  $('#coType', sh.el).addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (!b) return; co.type = b.dataset.v; $$('#coType button', sh.el).forEach(x => x.classList.toggle('on', x === b)); });
+  $('#coType', sh.el).addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (!b) return; co.type = b.dataset.v; $$('#coType button', sh.el).forEach(x => x.classList.toggle('on', x === b)); update(); });
   $('#coTable', sh.el).oninput = e => co.table = e.target.value; $('#coCust', sh.el).oninput = e => co.cust = e.target.value;
   if (!orderMode) api('/api/customers/names').then(r => { const dl = $('#coCustList', sh.el); if (dl) dl.innerHTML = (r.items || []).map(n => `<option value="${esc(n)}">`).join(''); }).catch(() => {}); $('#coNote', sh.el).oninput = e => co.note = e.target.value;
   $('#coDiscBtn', sh.el)?.addEventListener('click', () => { co.discOn = !co.discOn; $('#coDisc', sh.el).classList.toggle('hidden', !co.discOn); $('#coDiscBtn', sh.el).textContent = co.discOn ? '− Hapus diskon' : '+ Tambah diskon'; update(); });
@@ -633,10 +639,10 @@ function checkoutSheet(src) {
       if (orderMode) { pollOrders(); if (state.view === 'meja') viewMeja(); }
     } catch (e) {
       if (e.network && !orderMode) {          // internet putus: simpan di perangkat, kirim otomatis nanti
-        const t = calcTotals(sub, d.amt || 0), paid = body.amount_paid ?? t.total;
+        const t = calcTotals(sub, d.amt || 0, packFee()), paid = body.amount_paid ?? t.total;
         const prov = { id: 'OFFLINE-' + body.request_id.slice(-4).toUpperCase(), created_at: new Date().toISOString(), cashier: state.me.name, order_type: body.order_type, table_no: body.table_no, customer_name: body.customer_name, status: 'paid', offline: true,
           items: state.cart.map(l => { const unit = lineUnit(l); return { name_snapshot: prod(l.pid)?.name || '?', quantity: l.qty, unit_price: unit, line_total: unit * l.qty, modifiers_summary: optLabel(l.opts) }; }),
-          subtotal: t.subtotal, discount_amount: t.disc, service_amount: t.svc, tax_amount: t.tax, rounding_amount: t.round, total_amount: t.total, payment_method: body.payment_method, amount_paid: paid, change_amount: paid - t.total };
+          subtotal: t.subtotal, discount_amount: t.disc, packing_fee: t.packing, service_amount: t.svc, tax_amount: t.tax, rounding_amount: t.round, total_amount: t.total, payment_method: body.payment_method, amount_paid: paid, change_amount: paid - t.total };
         setQueue([...getQueue().filter(x => x.body.request_id !== body.request_id), { body, prov, at: Date.now() }]);
         state.cart = []; saveCart(); sh.close(); drawOfflineBar(); if (state.view === 'kasir') drawCart();
         receiptSheet(prov, true);
@@ -655,14 +661,15 @@ function receiptHTML(s) {
     <div>No: ${esc(s.id)}</div><div>${esc(fmtDateTime(s.created_at))}</div><div>Kasir: ${esc(s.cashier || '-')}</div>
     <div>${esc(state.orderTypes[s.order_type] || '')}${s.table_no ? ' · ' + esc(s.table_no) : ''}</div>${s.customer_name ? `<div>Pelanggan: ${esc(s.customer_name)}</div>` : ''}<hr>
     ${s.items.map(i => `<div>${esc(i.name_snapshot)}</div>${i.modifiers_summary ? `<div style="padding-left:8px">${esc(i.modifiers_summary)}</div>` : ''}${line(`${i.quantity} × ${nf.format(i.unit_price)}`, nf.format(i.line_total))}`).join('')}<hr>
-    ${line('Subtotal', nf.format(s.subtotal))}${s.discount_amount ? line('Diskon', '-' + nf.format(s.discount_amount)) : ''}${s.service_amount ? line('Layanan', nf.format(s.service_amount)) : ''}${s.tax_amount ? line('Pajak', nf.format(s.tax_amount)) : ''}${s.rounding_amount ? line('Pembulatan', nf.format(s.rounding_amount)) : ''}
+    ${line('Subtotal', nf.format(s.subtotal))}${s.packing_fee ? line('Kemasan', nf.format(s.packing_fee)) : ''}${s.discount_amount ? line('Diskon', '-' + nf.format(s.discount_amount)) : ''}${s.service_amount ? line('Layanan', nf.format(s.service_amount)) : ''}${s.tax_amount ? line('Pajak', nf.format(s.tax_amount)) : ''}${s.rounding_amount ? line('Pembulatan', nf.format(s.rounding_amount)) : ''}
     ${line('TOTAL', 'Rp' + nf.format(s.total_amount), 'b')}${line(esc(METHOD_NAME(s.payment_method)), nf.format(s.amount_paid))}${s.payment_method === 'tunai' ? line('Kembali', nf.format(s.change_amount)) : ''}
     ${s.status === 'void' ? '<hr><div class="c b">** DIBATALKAN **</div>' : ''}<hr><div class="c">${esc(st.receipt_footer)}</div>${st.outlet_contact ? `<div class="c">${esc(st.outlet_contact)}</div>` : ''}</div>`;
 }
 function ticketHTML(s) {
-  return `<div class="receipt"><h4 style="font-size:22px">${esc(s.id.split('-').pop())}</h4><div class="c b">${esc(state.orderTypes[s.order_type] || '')}${s.table_no ? ' · ' + esc(s.table_no) : ''}</div><div class="c">${esc(fmtTime(s.created_at))}</div><hr>
-    ${s.items.map(i => `<div class="b" style="font-size:16px">${i.quantity}× ${esc(i.name_snapshot)}</div>${i.modifiers_summary ? `<div style="padding-left:10px;font-size:13px">${esc(i.modifiers_summary.replace(/ \(\+\d+rb\)/g, ''))}</div>` : ''}`).join('<div style="height:6px"></div>')}
-    ${s.note ? `<hr><div class="b">Catatan: ${esc(s.note)}</div>` : ''}</div>`;
+  const sc = kdsScale(), fh = Math.round(22 * sc), fi = Math.round(16 * sc), fm = Math.round(13 * sc);
+  return `<div class="receipt"><h4 style="font-size:${fh}px">${esc(s.id.split('-').pop())}</h4><div class="c b" style="font-size:${fi}px">${esc(state.orderTypes[s.order_type] || '')}${s.table_no ? ' · ' + esc(s.table_no) : ''}</div><div class="c">${esc(fmtTime(s.created_at))}</div><hr>
+    ${s.items.map(i => `<div class="b" style="font-size:${fi}px">${i.quantity}× ${esc(i.name_snapshot)}</div>${i.modifiers_summary ? `<div style="padding-left:10px;font-size:${fm}px">${esc(i.modifiers_summary.replace(/ \(\+\d+rb\)/g, ''))}</div>` : ''}`).join('<div style="height:6px"></div>')}
+    ${s.note ? `<hr><div class="b" style="font-size:${fi}px">Catatan: ${esc(s.note)}</div>` : ''}</div>`;
 }
 function printHTML(html) {
   const pa = $('#printArea'); pa.className = 'print-area' + (state.settings.receipt_width === '80' ? ' w80' : ''); pa.innerHTML = html;
@@ -797,7 +804,7 @@ REPORT_VIEWS.sales = async () => {
     ${cov != null && cov < 100 ? `<div class="notice" style="margin-top:14px">${cov === 0 ? 'Laba belum bisa dihitung: belum ada menu terjual yang diisi HPP (modal).' : `Laba belum akurat: hanya <b>${cov}%</b> penjualan yang menunya sudah diisi HPP (modal).`} Lengkapi di <b>Kelola → Menu & Harga</b>.</div>` : ''}
     <div class="notice" style="margin-top:14px;background:#f1efe4;border-color:var(--line);color:var(--muted)"><b>Soal piutang:</b> aplikasi ini mencatat setiap nota <b>lunas saat dibayar</b>, jadi belum ada piutang/kasbon. Yang bisa dilihat adalah <b>tagihan meja</b> (pesanan QR yang sudah diterima tetapi belum dibayar) di atas.</div>
     <div class="grid g2" style="margin-top:14px">
-      <div class="card"><h3>Rincian</h3><table><tbody><tr><td>Subtotal</td><td class="num">${rp(r.subtotal)}</td></tr><tr><td>Diskon</td><td class="num">${r.discount ? '−' + rp(r.discount) : rp(0)}</td></tr><tr><td>Biaya layanan</td><td class="num">${rp(r.service)}</td></tr><tr><td>Pajak</td><td class="num">${rp(r.tax)}</td></tr><tr><td>Pembulatan</td><td class="num">${rp(r.rounding)}</td></tr><tr><td><b>Total</b></td><td class="num"><b>${rp(r.total)}</b></td></tr></tbody></table></div>
+      <div class="card"><h3>Rincian</h3><table><tbody><tr><td>Subtotal</td><td class="num">${rp(r.subtotal)}</td></tr><tr><td>Diskon</td><td class="num">${r.discount ? '−' + rp(r.discount) : rp(0)}</td></tr><tr><td>Biaya kemasan</td><td class="num">${rp(r.packing || 0)}</td></tr><tr><td>Biaya layanan</td><td class="num">${rp(r.service)}</td></tr><tr><td>Pajak</td><td class="num">${rp(r.tax)}</td></tr><tr><td>Pembulatan</td><td class="num">${rp(r.rounding)}</td></tr><tr><td><b>Total</b></td><td class="num"><b>${rp(r.total)}</b></td></tr></tbody></table></div>
       <div class="card"><h3>Per cara bayar</h3>${r.by_method.length ? barRows(r.by_method, m => `${esc(METHOD_NAME(m.method))} <span class="muted">(${m.n})</span>`, m => m.total) : emptyNote('Belum ada data.')}${r.by_type.length ? `<h3 style="margin:18px 0 8px">Jenis pesanan</h3>${barRows(r.by_type, t => esc(state.orderTypes[t.order_type] || t.order_type), t => t.total, 'gold')}` : ''}</div>
       <div class="card"><h3>Jam ramai</h3>${r.by_hour.length ? barRows(r.by_hour, h => `${h.hour}:00 <span class="muted">(${h.n})</span>`, h => h.total, 'gold') : emptyNote('Belum ada data.')}</div>
       ${r.by_day.length > 1 ? `<div class="card"><h3>Per hari</h3>${barRows(r.by_day, d => dayShort(d.date), d => d.total)}</div>` : ''}
@@ -1057,13 +1064,15 @@ SUBVIEWS.atur = async () => {
     <div class="card"><h3>Info toko & struk</h3><div id="e1"></div>${[{ name: 'outlet_name', label: 'Nama toko', value: st.outlet_name }, { name: 'outlet_address', label: 'Alamat singkat', value: st.outlet_address }, { name: 'receipt_footer', label: 'Pesan di bawah struk', value: st.receipt_footer }, { name: 'outlet_contact', label: 'Kontak (struk & halaman pesan)', value: st.outlet_contact, maxlength: 120 }, { name: 'public_base_url', label: 'Alamat situs untuk QR meja (opsional)', value: st.public_base_url, maxlength: 120, placeholder: 'https://kopisawah.diginavastudio.com', hint: 'Kosongkan bila Anda membuka aplikasi lewat alamat publik toko. Isi hanya bila alamat yang tercetak di QR harus berbeda.' }, { name: 'receipt_width', label: 'Lebar kertas struk', type: 'seg', value: st.receipt_width, options: [['58', '58 mm'], ['80', '80 mm']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="info">Simpan</button></div>
     <div class="card"><h3>Pajak, layanan & pembulatan</h3><div class="notice" style="margin-bottom:12px">Bawaan: <b>semua 0%</b> (tidak ada pajak/layanan). Besaran pajak restoran (PB1) ditetapkan pemerintah daerah — <b>tarif dan kewajibannya belum saya verifikasi</b>; pastikan dulu ke konsultan pajak / Bapenda setempat sebelum mengaktifkan.</div><div id="e2"></div>
     ${[{ name: 'service_percent', label: 'Biaya layanan (%)', type: 'number', value: st.service_percent, hint: 'Dihitung dari harga setelah diskon.' }, { name: 'tax_percent', label: 'Pajak (%)', type: 'number', value: st.tax_percent, hint: 'Dihitung dari harga setelah diskon + biaya layanan. Harga di menu dianggap belum termasuk pajak.' }, { name: 'rounding', label: 'Pembulatan total', type: 'select', value: st.rounding, options: [['0', 'Tidak dibulatkan'], ['100', 'Ke Rp100 terdekat'], ['500', 'Ke Rp500 terdekat'], ['1000', 'Ke Rp1.000 terdekat']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="tax">Simpan</button></div>
+    <div class="card"><h3>Biaya kemasan (bawa pulang)</h3><div id="e4"></div>${[{ name: 'packing_fee', label: 'Biaya kemasan (Rp)', type: 'number', value: st.packing_fee, hint: 'Ditambahkan <b>otomatis</b> hanya saat kasir memilih <b>Bawa pulang</b> — kasir tidak perlu mengisi apa pun. Isi <b>0</b> bila tidak dipakai.' }, { name: 'packing_fee_per', label: 'Dihitung', type: 'seg', value: st.packing_fee_per, options: [['order', 'Per pesanan'], ['item', 'Per gelas / item']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="pack">Simpan</button></div>
+    <div class="card"><h3>Papan dapur & tiket</h3><div id="e5"></div>${fieldHTML({ name: 'kds_scale', label: 'Ukuran tulisan', type: 'seg', value: st.kds_scale, options: [['1', 'Normal'], ['1.25', 'Besar'], ['1.5', 'Lebih besar'], ['1.75', 'Sangat besar']], hint: 'Berlaku untuk papan dapur di layar <b>dan</b> tiket dapur yang dicetak. Sesuaikan dengan jarak pandang dapur.' })}<button class="btn" data-act="saveSet" data-grp="dapur">Simpan</button></div>
     <div class="card"><h3>Diskon oleh kasir</h3><div id="e3"></div>${fieldHTML({ name: 'kasir_max_discount_percent', label: 'Batas diskon kasir (%)', type: 'number', value: st.kasir_max_discount_percent, hint: '0 = kasir tidak boleh memberi diskon (hanya pemilik). Diskon selalu wajib disertai alasan.' })}<button class="btn" data-act="saveSet" data-grp="disc">Simpan</button></div>
     <div class="card"><h3>QRIS toko (untuk pelanggan di meja)</h3>${st.qris_image ? `<div class="center"><img src="${imgSrc(st.qris_image)}" alt="QRIS toko" style="max-width:220px;width:100%;border:1px solid var(--line);border-radius:12px"></div>` : '<p class="muted" style="margin-top:0">Belum ada. Unggah gambar QRIS toko Anda (dari aplikasi bank/e-wallet).</p>'}<div class="stack" style="margin-top:10px"><label class="btn ghost" for="qrisFile">📷 ${st.qris_image ? 'Ganti gambar QRIS' : 'Unggah gambar QRIS'}</label><input type="file" id="qrisFile" accept="image/*" class="hidden">${st.qris_image ? '<button class="btn danger sm" data-act="qrisDelete">Hapus gambar QRIS</button>' : ''}</div><p class="hint">Setelah pesanan diterima, pelanggan melihat tombol <b>Bayar dengan QRIS</b> di HP-nya. <b>Kasir tetap harus memeriksa uang masuk</b> sebelum mencatat bayar — halaman ini tidak memverifikasi pembayaran.</p></div>
     <div class="card"><h3>Cadangan otomatis</h3><p class="muted" style="margin-top:0">Setiap hari setelah jam ${bk.hour}:00, sistem menyimpan cadangan (database + foto). Disimpan ${bk.keep} terakhir <b>di server yang sama</b>, jadi tetap unduh dan simpan salinan di tempat lain.</p><div class="list">${bk.items.map(b => `<div class="item"><div><div class="t">${esc(b.name)}</div><div class="s">${esc(fmtDateTime(b.at))} · ${fmtSize(b.size)}</div></div><div class="end"><a class="btn sm ghost" href="/api/admin/backups/${encodeURIComponent(b.name)}" download>⬇</a></div></div>`).join('') || '<div class="empty">Belum ada cadangan otomatis.</div>'}</div><button class="btn ghost" style="margin-top:10px" data-act="backupNow">Cadangkan sekarang</button></div>
     <div class="card"><h3>Keamanan & data</h3><div class="stack"><button class="btn ghost" data-act="changePin">Ganti PIN saya</button><a class="btn ghost" href="/api/admin/backup" download>⬇ Unduh cadangan data (.zip)</a><button class="btn ghost" data-act="audit">Riwayat aktivitas</button></div><p class="hint">Unduh cadangan rutin (mis. tiap minggu) dan simpan di tempat aman di luar server. Berkas cadangan berisi seluruh data toko — jangan dibagikan.</p></div></div>`;
   wireFields($('#sub'));
 };
-const SET_GROUPS = { info: ['outlet_name', 'outlet_address', 'receipt_footer', 'outlet_contact', 'public_base_url', 'receipt_width'], tax: ['service_percent', 'tax_percent', 'rounding'], disc: ['kasir_max_discount_percent'] };
+const SET_GROUPS = { info: ['outlet_name', 'outlet_address', 'receipt_footer', 'outlet_contact', 'public_base_url', 'receipt_width'], tax: ['service_percent', 'tax_percent', 'rounding'], disc: ['kasir_max_discount_percent'], pack: ['packing_fee', 'packing_fee_per'], dapur: ['kds_scale'] };
 
 /* ============================== MEJA: pesanan dari QR ============================== */
 const ORDER_PILL = { pending: ['gold', 'Menunggu konfirmasi'], accepted: ['ok', 'Diproses'], ready: ['ok', 'Siap diantar'], served: ['', 'Sudah disajikan'] };
@@ -1078,9 +1087,9 @@ const mejaMode = () => ls.get('ks_mejamode') === 'dapur' ? 'dapur' : 'meja';
 const minsAgo = iso => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
 function orderCard(o, kds) {
   const [k, t] = ORDER_PILL[o.status] || ['', o.status];
-  const big = kds ? 'font-size:20px;line-height:1.35' : '';
+  const big = kds ? `font-size:${Math.round(20 * kdsScale())}px;line-height:1.35` : '';
   const mins = minsAgo(o.updated_at || o.created_at), age = mins >= 20 ? 'bad' : mins >= 10 ? 'warn' : 'ok';
-  return `<div class="card flat" style="margin-top:10px"><div class="row between wrap"><div>${kds ? `<b style="font-size:22px">${esc(o.table_label)}</b> ` : ''}<b>${esc(o.id)}</b> <span class="small muted">· ${fmtTime(o.created_at)}${o.customer_name ? ' · ' + esc(o.customer_name) : ''}</span></div>${kds ? `<span class="pill ${age}">${mins} mnt</span>` : `<span class="pill ${k}">${esc(t)}</span>`}</div>
+  return `<div class="card flat" style="margin-top:10px"><div class="row between wrap"><div>${kds ? `<b style="font-size:${Math.round(22 * kdsScale())}px">${esc(o.table_label)}</b> ` : ''}<b>${esc(o.id)}</b> <span class="small muted">· ${fmtTime(o.created_at)}${o.customer_name ? ' · ' + esc(o.customer_name) : ''}</span></div>${kds ? `<span class="pill ${age}">${mins} mnt</span>` : `<span class="pill ${k}">${esc(t)}</span>`}</div>
     <ul style="margin:8px 0 4px;padding-left:20px;${big}">${o.items.map(i => `<li><b>${i.quantity}×</b> ${esc(i.name_snapshot)}${i.modifiers_summary ? `<div class="small muted">${esc(i.modifiers_summary)}</div>` : ''}</li>`).join('')}</ul>
     ${o.note ? `<div class="notice" style="padding:8px 12px;margin:6px 0">📝 ${esc(o.note)}</div>` : ''}
     <div class="row wrap" style="margin-top:8px">${kds ? '<span class="grow"></span>' : `<b class="grow">${rp(o.subtotal)}</b>`}
@@ -1272,7 +1281,7 @@ const ACT = {
   saveSet: async el => {
     const grp = el.dataset.grp, keys = SET_GROUPS[grp], root = el.closest('.card'), body = {};
     keys.forEach(k => { const seg = $(`[data-seg="${k}"]`, root); body[k] = seg ? seg.dataset.value : $(`[name="${k}"]`, root).value.trim(); });
-    const box = $('#' + { info: 'e1', tax: 'e2', disc: 'e3' }[grp]);
+    const box = $('#' + { info: 'e1', tax: 'e2', disc: 'e3', pack: 'e4', dapur: 'e5' }[grp]);
     try { const r = await api('/api/settings', { method: 'PUT', body }); state.settings = r.settings; box.innerHTML = ''; toast('Pengaturan disimpan', 'ok'); }
     catch (e) { box.innerHTML = `<div class="notice bad" style="margin-bottom:12px">${esc(e.message)}</div>`; }
   },

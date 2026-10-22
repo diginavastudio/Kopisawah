@@ -505,3 +505,56 @@ harus **dipasang ulang** (dua baris di `static/app.js`):
 - **Insiden singkat:** saat menambal `index.html`, berkas sempat kosong ±2 menit karena skrip saya menulis
   langsung (truncate) sebelum gagal. Dipulihkan dari git (`git checkout -- static/index.html`), lalu
   seluruh penulisan berikutnya memakai pola tulis-berkas-sementara + `os.replace`.
+
+# Ronde 11 — 23 Oktober 2026: biaya kemasan otomatis + ukuran tulisan papan dapur
+
+## 40. Masukan kasir yang dikerjakan
+1. **Biaya kemasan Rp1.000 untuk pesanan dibawa pulang** — kasir tidak perlu mengetik apa pun.
+2. **Tulisan papan dapur & tiket dapur bisa diperbesar** (dan bisa diatur pemilik).
+
+## 41. Biaya kemasan (packing)
+- Pengaturan baru di **Kelola → Pengaturan → Biaya kemasan (bawa pulang)**:
+  - `packing_fee` — nominal, bawaan **1000** (isi 0 = tidak dipakai).
+  - `packing_fee_per` — **per pesanan** (bawaan) atau **per gelas / item**.
+- Perilaku:
+  - Muncul **otomatis** saat kasir memilih jenis pesanan **Bawa pulang**; hilang lagi bila kembali ke
+    **Makan di sini**. Tidak ada kolom tambahan yang harus diisi kasir (sesuai aturan “isian seminimal mungkin”).
+  - Perhitungan di server: `packing_amount()` → hanya untuk `take_away`; pesanan QR meja selalu `dine_in`
+    sehingga tidak kena biaya kemasan.
+  - Urutan hitung: **subtotal + kemasan − diskon → biaya layanan → pajak → pembulatan**.
+  - Tersimpan di kolom baru `sales.packing_fee` (migrasi otomatis `ensure_column`).
+- Tampil di: ringkasan pembayaran kasir (“Biaya kemasan Rp1.000”), struk (baris `Kemasan`),
+  laporan rentang (kunci `packing`, ikut `net_sales`), dan periode beranda (`packing`).
+- Validasi server: nominal 0–100.000 bulat; satuan hanya `order`/`item`; skala dapur hanya 1 / 1.25 / 1.5 / 1.75.
+
+## 42. Ukuran tulisan papan dapur
+- Pengaturan baru `kds_scale` di **Kelola → Pengaturan → Papan dapur & tiket**:
+  **Normal (1)**, **Besar (1.25, bawaan)**, **Lebih besar (1.5)**, **Sangat besar (1.75)**.
+- Diterapkan oleh `kdsScale()` pada:
+  - kartu papan dapur: nama meja 22 px → **28 px**, item 20 px → **25 px** (saat skala 1.25);
+  - tiket dapur yang dicetak: nomor 22 → 28 px, jenis/item 16 → 20 px, pilihan 13 → 16 px.
+- Angka lain pada skala berbeda: 1 → 22/20, 1.5 → 33/30, 1.75 → 39/35.
+
+## 43. Berkas yang diubah
+- `app.py` (+55 baris): `SETTING_DEFAULTS` (3 kunci baru), `ensure_column sales.packing_fee`,
+  `packing_amount()`, `compute_totals(..., packing)`, validasi `PUT /api/settings`,
+  `POST /api/sales` (hitung + simpan), agregat laporan (`/api/reports/range`, `period_stats`).
+- `static/app.js`: `kdsScale()`, `calcTotals(..., packing)`, `sumRows`, `packFee()` di `checkoutSheet()`,
+  baris `Kemasan` di `receiptHTML()`, skala di `orderCard()` & `ticketHTML()`, 2 kartu pengaturan,
+  `SET_GROUPS` + peta `saveBox` (`pack` → `e4`, `dapur` → `e5`), baris kemasan di Rincian laporan.
+
+## 44. Hasil uji
+- **Uji staging port 18794 dengan salinan DB: 20/20 lulus** — bawa pulang +1000, makan di sini 0,
+  kirim ulang tidak dobel, per gelas 3×1000, fee 0 = tidak ada biaya, 3 validasi menolak nilai salah,
+  laporan `packing=4000` dan `net_sales` konsisten, rute & isi `app.js` benar.
+- **Uji di situs publik:** pilih *Bawa pulang* di layar Pembayaran → ringkasan berubah
+  `Subtotal Rp10.000 | Biaya kemasan Rp1.000 | Total Rp11.000`, tombol jadi **Bayar · Rp11.000**;
+  struk memuat baris `Kemasan`; skala 1/1.25/1.5/1.75 menghasilkan 22/20, 28/25, 33/30, 39/35 px.
+- Tidak ada transaksi uji yang tersimpan di server produksi (sheet ditutup sebelum bayar).
+
+## 45. Catatan insiden (lagi)
+- Pukul ±20:37 UTC sistem berkas **root kembali berstatus read-only** (kejadian kedua setelah 22:35 UTC),
+  `errors_count=0`, tanpa pesan `EXT4-fs error`/`Remounting filesystem read-only` di dmesg — penyebabnya
+  tidak tercatat. Pemulihan: `mount -o remount,rw /` lalu uji tulis. Berkas aplikasi **tidak rusak**
+  (tambalan gagal di tahap tulis dan diulang setelah mount normal). Perlu dipantau: kejadian berulang
+  menandakan masalah I/O host, bukan kode aplikasi.

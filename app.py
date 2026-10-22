@@ -73,6 +73,9 @@ SETTING_DEFAULTS = {
     "outlet_contact": "Reservasi 0851-1725-9677 · IG @kafekopisawah",
     "public_base_url": "",
     "qris_image": "",
+    "packing_fee": "1000",
+    "packing_fee_per": "order",
+    "kds_scale": "1.25",
 }
 ORDER_OPEN = ("pending", "accepted", "ready", "served")
 ORDER_STATUS_NAME = {"pending": "Menunggu konfirmasi", "accepted": "Sedang diproses", "ready": "Siap",
@@ -493,6 +496,7 @@ def init_db():
         ensure_column(c, "products", "description", "TEXT NOT NULL DEFAULT ''")
         ensure_column(c, "products", "featured", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(c, "products", "custom_modifiers", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(c, "sales", "packing_fee", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(c, "sales", "order_ids", "TEXT NOT NULL DEFAULT ''")
         ensure_column(c, "sales", "customer_name", "TEXT NOT NULL DEFAULT ''")
         c.execute("CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_name) WHERE customer_name!=''")
@@ -848,6 +852,19 @@ def r_settings_put(req):
             v = str(v)
             if v not in ("58", "80"):
                 raise ApiError(400, "Lebar struk harus 58 atau 80 mm.")
+        elif key == "packing_fee":
+            raw = str(v).strip().replace(" ", "").replace(".", "")
+            if not re.fullmatch(r"\d{1,6}", raw) or int(raw) > 100000:
+                raise ApiError(400, "Biaya kemasan harus angka bulat 0 sampai 100.000.")
+            v = str(int(raw))
+        elif key == "packing_fee_per":
+            v = str(v)
+            if v not in ("order", "item"):
+                raise ApiError(400, "Biaya kemasan dihitung per pesanan atau per item.")
+        elif key == "kds_scale":
+            v = str(v)
+            if v not in ("1", "1.25", "1.5", "1.75"):
+                raise ApiError(400, "Ukuran tulisan papan dapur tidak dikenal.")
         elif key == "qris_image":
             continue    # hanya lewat /api/settings/qris
         elif key == "public_base_url":
@@ -1266,9 +1283,24 @@ def compute_discount(disc, subtotal, user, settings):
     return amount, reason
 
 
-def compute_totals(subtotal, discount, settings):
-    """Urutan: subtotal − diskon → + service → + pajak (dari dasar+service) → pembulatan."""
-    base = subtotal - discount
+def packing_amount(settings, order_type, item_qty):
+    """Biaya kemasan otomatis HANYA untuk pesanan dibawa pulang. Kasir tidak perlu mengisi apa pun."""
+    if order_type != "take_away":
+        return 0
+    try:
+        fee = int(str(settings.get("packing_fee") or "0").strip() or 0)
+    except (TypeError, ValueError):
+        fee = 0
+    if fee <= 0:
+        return 0
+    if str(settings.get("packing_fee_per") or "order") == "item":
+        return fee * max(0, int(item_qty))
+    return fee
+
+
+def compute_totals(subtotal, discount, settings, packing=0):
+    """Urutan: subtotal + biaya kemasan − diskon → + service → + pajak (dari dasar+service) → pembulatan."""
+    base = subtotal + packing - discount
     service = money_round(Decimal(base) * Decimal(settings["service_percent"]) / 100)
     tax = money_round(Decimal(base + service) * Decimal(settings["tax_percent"]) / 100)
     raw = base + service + tax
@@ -1413,8 +1445,9 @@ def r_sale_add(req):
         else:
             prepared, need, products = price_lines(c, lines)
         subtotal = sum(unit * qty for _, qty, unit, _, _ in prepared)
+        packing = packing_amount(settings, order_type, sum(qty for _, qty, _, _, _ in prepared))
         discount, reason = compute_discount(d.get("discount"), subtotal, user, settings)
-        service, tax, rounding, total = compute_totals(subtotal, discount, settings)
+        service, tax, rounding, total = compute_totals(subtotal, discount, settings, packing)
         if method == "tunai":
             paid = to_int(d.get("amount_paid"), "Uang diterima", 0)
             if paid < total:
@@ -1428,11 +1461,11 @@ def r_sale_add(req):
             seq += 1
             sale_id = f"KS{today[2:4]}{today[5:7]}{today[8:10]}-{seq:03d}"
         c.execute("""INSERT INTO sales(id,created_at,total_amount,payment_method,status,note,business_date,request_id,
-                       subtotal,discount_amount,discount_reason,service_amount,tax_amount,rounding_amount,
+                       subtotal,discount_amount,discount_reason,packing_fee,service_amount,tax_amount,rounding_amount,
                        amount_paid,change_amount,order_type,table_no,user_id,shift_id,order_ids,customer_name)
-                     VALUES(?,?,?,?,'paid',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     VALUES(?,?,?,?,'paid',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                   (sale_id, stamp, total, method, note, today, request_id or None, subtotal, discount, reason,
-                   service, tax, rounding, paid, paid - total, order_type, table_no, user["id"], shift["id"],
+                   packing, service, tax, rounding, paid, paid - total, order_type, table_no, user["id"], shift["id"],
                    ",".join(o["id"] for o in orders), customer_name))
         for p, qty, unit, summary, var_lines in prepared:
             cur = c.execute("""INSERT INTO sale_items(sale_id,product_id,name_snapshot,variant_snapshot,unit_price,
@@ -1593,13 +1626,15 @@ def range_args(req):
 def period_stats(c, start, end):
     """Angka inti satu periode (tanggal usaha, tanpa transaksi batal)."""
     t = c.execute("""SELECT COUNT(*) n, COALESCE(SUM(subtotal-discount_amount),0) net, COALESCE(SUM(total_amount),0) total,
-                     COALESCE(SUM(discount_amount),0) discount FROM sales WHERE business_date BETWEEN ? AND ? AND status!='void'""", (start, end)).fetchone()
+                     COALESCE(SUM(discount_amount),0) discount, COALESCE(SUM(packing_fee),0) packing
+                     FROM sales WHERE business_date BETWEEN ? AND ? AND status!='void'""", (start, end)).fetchone()
     i = c.execute("""SELECT COALESCE(SUM(si.quantity),0) items, COALESCE(SUM(si.line_total),0) rev,
                      COALESCE(SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.line_total END),0) rev_cost,
                      COALESCE(SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.cost_snapshot*si.quantity END),0) cost
                      FROM sale_items si JOIN sales s ON s.id=si.sale_id
                      WHERE s.business_date BETWEEN ? AND ? AND s.status!='void'""", (start, end)).fetchone()
     return {"from": start, "to": end, "n": t["n"], "net": t["net"], "total": t["total"], "discount": t["discount"],
+            "packing": t["packing"],
             "items": i["items"], "avg": round(t["total"] / t["n"]) if t["n"] else 0,
             "gross_profit": i["rev_cost"] - i["cost"], "coverage": round(i["rev_cost"] * 100 / i["rev"]) if i["rev"] else None}
 
@@ -1673,6 +1708,7 @@ def r_range(req):
     cond, args = "s.business_date BETWEEN ? AND ?", (start, end)
     with db() as c:
         t = c.execute(f"""SELECT COUNT(*) n, COALESCE(SUM(subtotal),0) subtotal, COALESCE(SUM(discount_amount),0) discount,
+                          COALESCE(SUM(packing_fee),0) packing,
                           COALESCE(SUM(service_amount),0) service, COALESCE(SUM(tax_amount),0) tax,
                           COALESCE(SUM(rounding_amount),0) rounding, COALESCE(SUM(total_amount),0) total
                           FROM sales s WHERE {cond} AND status!='void'""", args).fetchone()
@@ -1690,8 +1726,9 @@ def r_range(req):
                             COALESCE(SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.line_total END),0) revenue_with_cost,
                             COALESCE(SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.cost_snapshot*si.quantity END),0) cost
                             FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE {cond} AND s.status!='void'""", args).fetchone()
-    net = t["subtotal"] - t["discount"]
+    net = t["subtotal"] + t["packing"] - t["discount"]
     return {"from": start, "to": end, "transactions": t["n"], "subtotal": t["subtotal"], "discount": t["discount"],
+            "packing": t["packing"],
             "net_sales": net, "service": t["service"], "tax": t["tax"], "rounding": t["rounding"], "total": t["total"],
             "average": round(t["total"] / t["n"]) if t["n"] else 0,
             "void_count": v["n"], "void_total": v["total"],
