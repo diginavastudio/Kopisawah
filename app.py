@@ -28,6 +28,7 @@ try:
 except Exception:
     TZ_NAME, TZ = "UTC", timezone.utc
 REQUIRE_STOCK = os.environ.get("KOPI_SAWAH_REQUIRE_STOCK", "0") == "1"
+VERSION_FILE = Path(os.environ.get("KOPI_SAWAH_VERSION_FILE", "/var/lib/kopi-sawah/VERSION"))
 WRITE_UNTIL_RAW = os.environ.get("KOPI_SAWAH_WRITE_UNTIL", "").strip()
 VALID_IMAGE_KEYS = {p.stem for p in (STATIC / "images").glob("*.jpg")}
 
@@ -148,6 +149,14 @@ def resolve_item_variants(c, product, chosen):
             lines.append({"group_name": g["name"], "modifier_name": it["name"], "price_delta": it["price_delta"]})
     summary = ", ".join(f"{l['modifier_name']}" + (f" (+{l['price_delta']//1000}rb)" if l["price_delta"] else "") for l in lines)
     return delta, summary, lines
+
+
+def live_version():
+    try:
+        parts = VERSION_FILE.read_text(encoding="utf-8").split()
+    except OSError:
+        return {"commit": "", "deployed_at": "", "catatan": "belum ada penanda versi"}
+    return {"commit": parts[0] if parts else "", "deployed_at": parts[1] if len(parts) > 1 else ""}
 
 
 def open_session(c):
@@ -366,7 +375,7 @@ class Handler(BaseHTTPRequestHandler):
                                   "SELECT COUNT(*) FROM products WHERE active=1 AND stock_tracked=0").fetchone()[0]}
                 return self.send_json(200, {"ok": True, "mode": "local-development", "counts": counts,
                                             "timezone": TZ_NAME, "business_date": business_date(),
-                                            "require_stock": REQUIRE_STOCK})
+                                            "require_stock": REQUIRE_STOCK, "version": live_version()})
             if path == "/api/products":
                 qs = parse_qs(url.query)
                 q = (qs.get("q", [""])[0] or "").strip()

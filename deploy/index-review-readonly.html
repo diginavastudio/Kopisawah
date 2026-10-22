@@ -130,6 +130,7 @@ td img.thumb{width:48px;height:40px;object-fit:cover;border-radius:8px;backgroun
   <img class="logo" src="/static/images/logo-kopi-sawah-transparan.png" alt="Kopi Sawah">
   <div class="brand"><small>Kasir &amp; katalog · Klaten</small></div>
   <div class="tag">
+    <span class="badge" id="versiBadge">—</span>
     <span class="badge" id="zonaBadge">—</span>
     <span class="badge live" id="modeBadge">Mode uji</span>
   </div>
@@ -613,7 +614,8 @@ async function render(){
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;render()});
 (async()=>{
-  try{const h=await api('/api/health');el('#zonaBadge').textContent=(h.timezone||'Asia/Jakarta')+' · '+h.business_date;el('#modeBadge').textContent='Pratinjau baca-saja'}catch(e){}
+  try{const h=await api('/api/health');el('#zonaBadge').textContent=(h.timezone||'Asia/Jakarta')+' · '+h.business_date;
+    const v=h.version||{};el('#versiBadge').textContent=v.commit?('versi '+(v.deployed_at?lokal(v.deployed_at):v.commit.slice(0,7))):'versi ?';el('#modeBadge').textContent='Pratinjau baca-saja'}catch(e){}
   render();
 })();
 </script>

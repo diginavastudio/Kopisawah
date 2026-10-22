@@ -90,4 +90,9 @@ if [ "$sehat" != 1 ]; then
   exit 6
 fi
 
+# 5. tulis penanda versi (dibaca aplikasi lewat /api/health)
+printf '%s %s\n' "$(git rev-parse --short HEAD)" "$(date -u +%FT%TZ)" > /var/lib/kopi-sawah/VERSION
+chown kopi-sawah:kopi-sawah /var/lib/kopi-sawah/VERSION 2>/dev/null || true
+chmod 0644 /var/lib/kopi-sawah/VERSION 2>/dev/null || true
+
 log "SUKSES terpasang: $(git log --oneline -1)"
