@@ -203,3 +203,30 @@ Detail temuan dan peta pengembangan: [`REVIEW.md`](REVIEW.md). Cara pasang: [`..
 
 ## Rollback ronde 3
 Lihat bagian *Rollback* di `deploy/README.md`. Selalu cadangkan database sebelum memperbarui.
+
+
+---
+
+# Ronde 4 — 22 Oktober 2026: Menu Baru, foto dari PDF, QR meja
+
+Detail: [`REVIEW.md`](REVIEW.md) bagian 5–7. Daftar foto: [`FOTO-MENU.md`](FOTO-MENU.md).
+
+## Menu & foto
+- Foto menu **dipotong ulang** dari PDF Menu Baru (`tools/crop_menu_photos.py`): 34 berkas 4:3. Penyebab foto salah: nama berkas lama tertukar (mis. `paket-ayam` = foto nila). Menu tanpa foto PDF menampilkan logo, bukan foto menu lain.
+- Logo bulat baru (`static/images/logo-badge.png`) dipakai di header, layar masuk, halaman pelanggan, dan kartu QR.
+- Skema v4 (menambah saja, kecuali `modifiers` dibangun ulang tanpa larangan harga negatif): `products.description/featured/custom_modifiers`, tabel `product_modifier_groups`, `dining_tables`, `orders`, `order_items`, `table_calls`, kolom `sales.order_ids`.
+- Patch katalog (`menu_patch_v4.json` + `catalog.json`) aman untuk database hidup: tidak menimpa harga/ubahan pemilik; hanya mengisi yang kosong dan mengganti foto bawaan lama.
+- Pilihan **khusus per menu** (menggantikan aturan per kategori bila diatur), 7 kelompok baru, tambahan harga negatif (“Tanpa nasi −4rb”), Level Es jadi opsional, kategori Wedangan tanpa “Suhu”.
+- Deskripsi (50 menu), ⭐ favorit (8), urutan kategori mengikuti kartu menu, “Oriental” → “Air Es”.
+- Unggah foto dari HP/laptop (dikecilkan di peramban, disimpan di `…/uploads/`); cadangan kini `.zip` (database + foto).
+
+## Pesan lewat QR meja
+- Halaman pelanggan `/m/<kode>` (`static/order.*`), API `/api/public/*`, tab **Meja** di kasir (terima/tolak/siap/disajikan/batal, tiket dapur, panggilan meja, suara notifikasi), pembayaran gabungan per meja (`POST /api/sales` dengan `order_ids`), **Kelola → Meja & QR** (buat meja, QR, cetak kartu A4, ganti kode).
+- Pembuat QR: `qrcode-generator` 2.0.4 (MIT), disalin ke `static/vendor/`.
+
+## Tes
+- API: 11 → 18 tes. Layar: ± 30 pemeriksaan termasuk pembacaan QR oleh pemindai independen.
+- Migrasi dari skema v3 (kode `3d7f88a`) dan rollback diuji pada data tiruan.
+
+## Rollback ronde 4
+Lihat `deploy/README.md`. Cadangkan database sebelum memperbarui.

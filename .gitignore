@@ -3,3 +3,4 @@ data/*.sqlite3-journal
 __pycache__/
 *.pyc
 .app.py.new
+data/uploads/

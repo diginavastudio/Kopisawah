@@ -20,7 +20,7 @@ Server memakai Hestia + nginx; aplikasi jalan sebagai layanan systemd `kopi-sawa
 2. Tarik kode: `cd /opt/kopi-sawah && git pull`.
 3. Mulai ulang: `systemctl restart kopi-sawah.service`.
    Seharusnya: `systemctl status kopi-sawah --no-pager` menampilkan `active (running)`.
-4. Migrasi skema berjalan otomatis saat start (hanya **menambah** tabel/kolom; data lama tidak dihapus).
+4. Migrasi skema berjalan otomatis saat start. Hanya menambah tabel/kolom (satu pengecualian: tabel `modifiers` dibangun ulang tanpa larangan harga negatif; isinya disalin utuh). **Patch katalog Menu Baru** hanya mengisi deskripsi/favorit yang masih kosong, mengganti foto bawaan lama, mengubah nama “Oriental” → “Air Es”, dan memasang pilihan khusus menu; **harga dan ubahan pemilik tidak ditimpa**.
 
 ## Penyiapan pertama setelah update ini (belum ada akun)
 
@@ -34,15 +34,30 @@ Server memakai Hestia + nginx; aplikasi jalan sebagai layanan systemd `kopi-sawa
 
 Setelah ada akun pemilik, kode penyiapan tidak berlaku lagi.
 
+## Pesan lewat QR meja (setelah akun pemilik ada)
+
+1. **Kelola → Meja & QR → Tambah banyak meja** (mis. awalan “Meja”, mulai 1, jumlah 10).
+2. Periksa baris *Alamat yang dipakai di QR*: harus alamat publik toko (`https://kopisawah.diginavastudio.com`). Bila Anda membuka aplikasi lewat alamat lain, isi **Pengaturan → Alamat situs untuk QR meja**.
+3. Ketuk satu meja → **Lihat QR** → scan dengan HP Anda sendiri. Seharusnya terbuka halaman menu dengan tulisan “Anda duduk di Meja 1”. Coba pesan satu item, lalu cek tab **Meja** di kasir.
+4. **Cetak semua QR** (A4, 4 kartu per lembar) → laminasi → tempel di meja.
+5. Pastikan tab **Meja** terbuka di perangkat kasir selama buka toko (pesanan berbunyi; ketuk layar sekali setelah membuka halaman agar suara aktif).
+
+Yang perlu diketahui:
+- **Pelanggan tidak login.** Pesanan masuk berstatus *menunggu konfirmasi* dan baru diproses setelah kasir menekan **Terima**. Pembayaran tetap di kasir.
+- Batas laju memakai alamat IP dari header `X-Real-IP`. `deploy/nginx-writable-location.conf` sudah mengirimnya — **jangan dihapus**, atau semua pelanggan dianggap satu perangkat.
+- Bila foto QR sebuah meja tersebar/disalahgunakan: **Ubah / ganti kode** pada meja itu, lalu cetak ulang.
+- Foto menu yang diunggah disimpan di `/var/lib/kopi-sawah/uploads/` (di luar kode) dan ikut dalam cadangan `.zip`.
+
 ## Pemeriksaan cepat
 
 ```
 curl -s http://127.0.0.1:8791/api/health        # {"ok": true, "timezone": ..., "business_date": ...}
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8791/api/products   # harus 401 (butuh login)
+curl -s -o /dev/null -w '%{http_code}\n' 'http://127.0.0.1:8791/api/public/menu?t=salah'  # harus 404 (kode meja tidak dikenal)
 ```
 
 ## Rollback
 
 Kembalikan kode (`git checkout <commit-sebelumnya>`) dan, bila perlu, database dari cadangan langkah 1:
 `systemctl stop kopi-sawah && cp <cadangan>.sqlite3 /var/lib/kopi-sawah/kopi-sawah.sqlite3 && systemctl start kopi-sawah`.
-Membuka database *baru* dengan kode *lama* **belum saya uji** — kalau ragu, pulihkan database dari cadangan langkah 1 (transaksi setelah update ikut hilang).
+Kode lama bisa membuka database baru (diuji pada data tiruan: membaca produk & penjualan, dan masih bisa menjual), tetapi tidak mengenal meja/pesanan QR, dan pilihan menu mengikuti kategori lagi. Kalau ragu, pulihkan database dari cadangan langkah 1 (transaksi setelah update ikut hilang).

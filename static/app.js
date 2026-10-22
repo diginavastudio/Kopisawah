@@ -28,6 +28,7 @@ const ICON = {
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
   cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/>',
+  table: '<path d="M4 9h16M6 9v10M18 9v10M3 9l1.5-4h15L21 9"/>',
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
 
@@ -40,6 +41,11 @@ const state = {
 };
 const isOwner = () => state.me && state.me.role === 'owner';
 const prod = id => state.products.find(p => p.id === id);
+const CAT_ORDER = ['Makanan', 'Lauk', 'Paket', 'Sup', 'Sayuran', 'Camilan', 'Kopi', 'Minuman', 'Wedangan', 'Add-on'];   // urutan kartu menu
+const catRank = c => { const i = CAT_ORDER.indexOf(c); return i < 0 ? 99 : i; };
+const imgSrc = k => !k || k === 'none' ? '' : k.startsWith('up-') ? `/media/${k}.jpg` : `/static/images/${k}.jpg`;
+const thumb = k => k && k !== 'none' ? `<img src="${imgSrc(k)}" alt="" loading="lazy">` : '<span class="noimg"></span>';
+const signed = n => (n > 0 ? '+' : '−') + rp(Math.abs(n));
 
 /* ============================== jaringan ============================== */
 async function api(path, { method = 'GET', body } = {}) {
@@ -117,6 +123,7 @@ function fieldHTML(f) {
   const v = f.value ?? '';
   switch (f.type) {
     case 'money': input = `<input class="field" id="${id}" name="${f.name}" inputmode="numeric" autocomplete="off" data-money placeholder="${esc(f.placeholder || '0')}" value="${v === '' || v == null ? '' : nf.format(v)}">`; break;
+    case 'smoney': input = `<input class="field" id="${id}" name="${f.name}" inputmode="text" autocomplete="off" data-smoney placeholder="0" value="${v === '' || v == null ? '' : (v < 0 ? '-' : '') + nf.format(Math.abs(v))}">`; break;
     case 'number': input = `<input class="field" id="${id}" name="${f.name}" inputmode="decimal" autocomplete="off" placeholder="${esc(f.placeholder || '')}" value="${esc(v)}">`; break;
     case 'pin': input = `<input class="field" id="${id}" name="${f.name}" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="${esc(f.placeholder || '')}" value="${esc(v)}">`; break;
     case 'textarea': input = `<textarea class="field" id="${id}" name="${f.name}" maxlength="${f.maxlength || 240}" placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`; break;
@@ -134,7 +141,9 @@ function readFields(root, fields) {
     else if (f.type === 'switch') out[f.name] = $(`[data-switch="${f.name}"]`, root).dataset.value === '1';
     else {
       const el = $(`[name="${f.name}"]`, root);
-      out[f.name] = f.type === 'money' ? (digits(el.value) === '' ? null : parseInt(digits(el.value), 10)) : el.value.trim();
+      out[f.name] = f.type === 'money' ? (digits(el.value) === '' ? null : parseInt(digits(el.value), 10))
+        : f.type === 'smoney' ? (digits(el.value) === '' ? 0 : (/^\s*[-−]/.test(el.value) ? -1 : 1) * parseInt(digits(el.value), 10))
+        : el.value.trim();
     }
   }
   return out;
@@ -152,6 +161,10 @@ function wireFields(root) {
 }
 document.addEventListener('input', e => {
   const el = e.target;
+  if (el.matches && el.matches('[data-smoney]')) {
+    const neg = /^\s*[-−]/.test(el.value), d = digits(el.value).slice(0, 9);
+    el.value = (neg ? '-' : '') + (d ? nf.format(parseInt(d, 10)) : '');
+  }
   if (el.matches && el.matches('[data-money]')) {
     const d = digits(el.value).slice(0, 10);
     el.value = d ? nf.format(parseInt(d, 10)) : '';
@@ -183,15 +196,17 @@ function formSheet({ title, intro = '', fields, submit = 'Simpan', danger, extra
 async function loadProducts(force) {
   if (force || !state.products.length) {
     const d = await api('/api/products' + (isOwner() ? '?include_inactive=1' : ''));
-    state.products = d.items; state.images = d.images || [];
+    state.products = d.items.sort((a, b) => catRank(a.category) - catRank(b.category) || a.category.localeCompare(b.category) || (b.featured || 0) - (a.featured || 0) || a.name.localeCompare(b.name) || a.variant.localeCompare(b.variant));
+    state.images = d.images || [];
   }
   return state.products;
 }
 const activeProducts = () => state.products.filter(p => p.active !== 0);
 async function loadMods(force) { if (force || !state.mods) state.mods = await api('/api/modifiers'); return state.mods; }
 async function loadShift() { state.shift = (await api('/api/shifts/current')).shift; updateShiftChip(); return state.shift; }
-function groupsFor(cat) {
-  const ids = (state.mods?.categories[cat]) || [];
+function groupsFor(p) {
+  const custom = state.mods?.product_groups?.[p.id];
+  const ids = custom !== undefined ? custom : (state.mods?.categories[p.category]) || [];
   return ids.map(id => state.mods.groups.find(g => g.id === id)).filter(g => g && g.options.length);
 }
 function soldOut(p) { return !p.available || (p.stock_tracked && p.stock_on_hand != null && p.stock_on_hand <= 0); }
@@ -244,13 +259,13 @@ function sumRows(t) {
 /* ============================== kerangka & navigasi ============================== */
 function navItems() {
   return isOwner()
-    ? [['home', 'Beranda', 'home'], ['kasir', 'Kasir', 'cart'], ['pesanan', 'Pesanan', 'list'], ['laporan', 'Laporan', 'chart'], ['kelola', 'Kelola', 'cog'], ['kas', 'Kas', 'cash']]
-    : [['kasir', 'Kasir', 'cart'], ['pesanan', 'Pesanan', 'list'], ['kas', 'Kas', 'cash']];
+    ? [['home', 'Beranda', 'home'], ['kasir', 'Kasir', 'cart'], ['meja', 'Meja', 'table'], ['pesanan', 'Pesanan', 'list'], ['laporan', 'Laporan', 'chart'], ['kelola', 'Kelola', 'cog'], ['kas', 'Kas', 'cash']]
+    : [['kasir', 'Kasir', 'cart'], ['meja', 'Meja', 'table'], ['pesanan', 'Pesanan', 'list'], ['kas', 'Kas', 'cash']];
 }
 function shell() {
-  $('#app').innerHTML = `<header class="top"><img src="/static/images/logo-kopi-sawah-transparan.png" alt="Kopi Sawah">
+  $('#app').innerHTML = `<header class="top"><img class="badge-logo" src="/static/images/logo-badge.png" alt="Kopi Sawah"><span class="brand">Kopi Sawah</span>
     <div class="who"><span id="shiftChip"></span><span class="nm">${esc(state.me.name)} · ${ROLE_NAME[state.me.role]}</span><button class="btn ghost" data-act="logout">Keluar</button></div></header>
-    <nav class="tabs" id="tabs" aria-label="Menu utama">${navItems().map(([id, label, ic]) => `<button data-act="go" data-view="${id}">${icon(ic)}<span>${label}</span></button>`).join('')}</nav>
+    <nav class="tabs" id="tabs" aria-label="Menu utama">${navItems().map(([id, label, ic]) => `<button data-act="go" data-view="${id}">${icon(ic)}<span>${label}</span>${id === 'meja' ? '<span class="nbadge hidden" id="mejaBadge"></span>' : ''}</button>`).join('')}</nav>
     <main id="main"></main>`;
   updateShiftChip();
 }
@@ -272,7 +287,7 @@ const head = (t, sub = '', right = '') => `<div class="page-head"><div><h2>${t}<
 
 /* ============================== masuk & penyiapan ============================== */
 function authFrame(inner) {
-  $('#app').innerHTML = `<div class="auth"><img src="/static/images/logo-kopi-sawah-transparan.png" alt="Kopi Sawah"><div class="card">${inner}</div></div>`;
+  $('#app').innerHTML = `<div class="auth"><img class="auth-logo" src="/static/images/logo-badge.png" alt="Kopi Sawah"><div class="card">${inner}</div></div>`;
 }
 function setupScreen() {
   authFrame(`<h2>Selamat datang 👋</h2><p class="muted">Buat akun <b>pemilik</b> dulu. PIN ini dipakai untuk masuk dan mengatur toko.</p><div id="err"></div>
@@ -374,9 +389,9 @@ function drawGrid() {
   const list = activeProducts().filter(p => (state.cat === 'Semua' || p.category === state.cat) && (!q || `${p.name} ${p.category} ${p.variant}`.toLowerCase().includes(q)));
   g.innerHTML = list.length ? list.map(p => {
     const out = soldOut(p), low = !out && p.stock_tracked && p.stock_on_hand != null && p.reorder_level != null && p.stock_on_hand <= p.reorder_level;
-    const nov = groupsFor(p.category).length;
+    const nov = groupsFor(p).length;
     return `<div class="tile ${out ? 'off' : ''}" role="button" tabindex="0" data-act="tile" data-id="${esc(p.id)}">
-      <img src="/static/images/${esc(p.image_key || 'snack')}.jpg" alt="" loading="lazy">
+      ${thumb(p.image_key)}
       ${out ? '<span class="pill bad tag">Habis</span>' : low ? `<span class="pill warn tag">Sisa ${p.stock_on_hand}</span>` : ''}
       <div class="in"><span class="nm">${esc(p.name)}</span><span class="sub">${esc(p.variant || p.category)}${nov ? ' · ada pilihan' : ''}</span>
       <span class="pr">${p.price == null ? 'Harga belum diisi' : rp(p.price)}</span>
@@ -406,7 +421,7 @@ function variantSheet(p, groups) {
   const draw = sh => {
     const extra = chosen().reduce((s, o) => s + o.delta, 0);
     sh.setBody(`<p class="muted" style="margin-top:0">Harga dasar ${rp(p.price)}. Pilihan standar sudah terpilih — ubah bila perlu.</p>` + groups.map(g => `<div class="opt-group"><div class="h"><span>${esc(g.name)}</span><span class="small muted">${g.min_select > 0 ? 'Wajib pilih' : 'Boleh dikosongkan'}${g.max_select > 1 ? ` · maks ${g.max_select}` : ''}</span></div>
-      ${g.options.map(o => { const on = (picked.get(g.id) || new Set()).has(o.id); return `<button type="button" class="opt ${g.max_select > 1 ? 'multi' : ''} ${on ? 'on' : ''}" data-g="${esc(g.id)}" data-o="${esc(o.id)}"><span class="box"></span><span>${esc(o.name)}</span><span class="pl">${o.price_delta ? '+' + rp(o.price_delta) : ''}</span></button>`; }).join('')}</div>`).join(''));
+      ${g.options.map(o => { const on = (picked.get(g.id) || new Set()).has(o.id); return `<button type="button" class="opt ${g.max_select > 1 ? 'multi' : ''} ${on ? 'on' : ''}" data-g="${esc(g.id)}" data-o="${esc(o.id)}"><span class="box"></span><span>${esc(o.name)}</span><span class="pl">${o.price_delta ? signed(o.price_delta) : ''}</span></button>`; }).join('')}</div>`).join(''));
     sh.setFooter(`<div class="step"><button data-q="-1" aria-label="Kurangi">−</button><b>${qty}</b><button data-q="1" aria-label="Tambah">+</button></div><button class="btn gold" data-add>Tambah · ${rp((p.price + extra) * qty)}</button>`);
     sh.qa('.opt').forEach(b => b.onclick = () => {
       const g = groups.find(x => x.id === b.dataset.g), id = b.dataset.o, set = picked.get(g.id) || new Set();
@@ -425,18 +440,20 @@ function variantSheet(p, groups) {
 }
 
 /* ---- pembayaran ---- */
-function checkoutSheet() {
-  if (!state.cart.length) return;
+function checkoutSheet(src) {
+  const orderMode = !!(src && src.orders);
+  if (!orderMode && !state.cart.length) return;
   state.cartSheet?.close();
-  const st = state.settings, sub = cartSubtotal();
+  const st = state.settings, sub = orderMode ? src.sub : cartSubtotal();
   const canDisc = isOwner() || parseFloat(st.kasir_max_discount_percent) > 0;
   const co = { type: 'dine_in', table: '', note: '', discOn: false, dtype: 'percent', dval: '', dreason: '', method: '', paid: null, reqId: (crypto.randomUUID ? crypto.randomUUID() : 'ks-' + Date.now() + '-' + Math.random().toString(16).slice(2)), busy: false };
   const sh = openSheet({
     title: 'Pembayaran', wide: true,
     body: `<div id="coErr"></div>
-    <div class="form-row"><label class="lbl">Jenis pesanan</label><div class="seg" id="coType">${Object.entries(state.orderTypes).map(([k, v]) => `<button type="button" data-v="${k}" class="${k === co.type ? 'on' : ''}">${esc(v)}</button>`).join('')}</div></div>
+    ${orderMode ? `<div class="notice" style="margin-bottom:12px"><b>${esc(src.label)}</b> · ${src.orders.length} pesanan dari QR: ${esc(src.orders.map(o => o.id).join(', '))}</div>` : ''}
+    <div class="${orderMode ? 'hidden' : ''}"><div class="form-row"><label class="lbl">Jenis pesanan</label><div class="seg" id="coType">${Object.entries(state.orderTypes).map(([k, v]) => `<button type="button" data-v="${k}" class="${k === co.type ? 'on' : ''}">${esc(v)}</button>`).join('')}</div></div>
     <div class="two"><div class="form-row"><label class="lbl" for="coTable">Nomor meja / nama (opsional)</label><input class="field" id="coTable" maxlength="20" autocomplete="off" placeholder="mis. Meja 5 / Bu Sari"></div>
-    <div class="form-row"><label class="lbl" for="coNote">Catatan (opsional)</label><input class="field" id="coNote" maxlength="240" autocomplete="off" placeholder="mis. jangan terlalu pedas"></div></div>
+    <div class="form-row"><label class="lbl" for="coNote">Catatan (opsional)</label><input class="field" id="coNote" maxlength="240" autocomplete="off" placeholder="mis. jangan terlalu pedas"></div></div></div>
     ${canDisc ? `<div class="form-row"><button type="button" class="btn ghost sm" id="coDiscBtn">+ Tambah diskon</button><div id="coDisc" class="hidden" style="margin-top:10px"><div class="seg" id="coDType"><button type="button" data-v="percent" class="on">Persen (%)</button><button type="button" data-v="nominal">Rupiah (Rp)</button></div>
       <div class="two" style="margin-top:10px"><input class="field" id="coDVal" inputmode="decimal" placeholder="Nilai diskon" autocomplete="off"><input class="field" id="coDWhy" maxlength="120" placeholder="Alasan (wajib)" autocomplete="off"></div>${isOwner() ? '' : `<div class="hint">Batas diskon kasir: ${esc(st.kasir_max_discount_percent)}% dari subtotal.</div>`}</div></div>` : ''}
     <div class="card flat sumrows" id="coSum" style="margin-bottom:14px"></div>
@@ -484,16 +501,20 @@ function checkoutSheet() {
   $('#coPayBtn', sh.el).onclick = async () => {
     if (co.busy) return; co.busy = true; err(''); update();
     const d = discAmount();
-    const body = { items: state.cart.map(l => ({ product_id: l.pid, quantity: l.qty, modifiers: l.opts.map(o => ({ id: o.id })) })), payment_method: co.method, order_type: co.type, table_no: co.table, note: co.note, request_id: co.reqId };
+    const body = orderMode
+      ? { order_ids: src.orders.map(o => o.id), payment_method: co.method, note: co.note, request_id: co.reqId }
+      : { items: state.cart.map(l => ({ product_id: l.pid, quantity: l.qty, modifiers: l.opts.map(o => ({ id: o.id })) })), payment_method: co.method, order_type: co.type, table_no: co.table, note: co.note, request_id: co.reqId };
     if (co.method === 'tunai') body.amount_paid = co.paid;
     if (d.amt) body.discount = { type: co.dtype, value: co.dtype === 'percent' ? parseFloat(co.dval.replace(',', '.')) : d.amt, reason: co.dreason.trim() };
     try {
       const r = await api('/api/sales', { method: 'POST', body });
-      state.cart = []; saveCart(); sh.close();
+      if (!orderMode) { state.cart = []; saveCart(); }
+      sh.close();
       if (r.duplicate) toast('Pesanan ini sudah tersimpan sebelumnya — tidak dicatat dua kali.', 'ok');
       loadProducts(true).then(() => { if (state.view === 'kasir') { drawGrid(); drawCart(); } });
       if (state.view === 'kasir') drawCart();
       receiptSheet(r.item, true);
+      if (orderMode) { pollOrders(); if (state.view === 'meja') viewMeja(); }
     } catch (e) { co.busy = false; err(e.message); update(); }
   };
   update();
@@ -508,7 +529,7 @@ function receiptHTML(s) {
     ${s.items.map(i => `<div>${esc(i.name_snapshot)}</div>${i.modifiers_summary ? `<div style="padding-left:8px">${esc(i.modifiers_summary)}</div>` : ''}${line(`${i.quantity} × ${nf.format(i.unit_price)}`, nf.format(i.line_total))}`).join('')}<hr>
     ${line('Subtotal', nf.format(s.subtotal))}${s.discount_amount ? line('Diskon', '-' + nf.format(s.discount_amount)) : ''}${s.service_amount ? line('Layanan', nf.format(s.service_amount)) : ''}${s.tax_amount ? line('Pajak', nf.format(s.tax_amount)) : ''}${s.rounding_amount ? line('Pembulatan', nf.format(s.rounding_amount)) : ''}
     ${line('TOTAL', 'Rp' + nf.format(s.total_amount), 'b')}${line(esc(METHOD_NAME(s.payment_method)), nf.format(s.amount_paid))}${s.payment_method === 'tunai' ? line('Kembali', nf.format(s.change_amount)) : ''}
-    ${s.status === 'void' ? '<hr><div class="c b">** DIBATALKAN **</div>' : ''}<hr><div class="c">${esc(st.receipt_footer)}</div></div>`;
+    ${s.status === 'void' ? '<hr><div class="c b">** DIBATALKAN **</div>' : ''}<hr><div class="c">${esc(st.receipt_footer)}</div>${st.outlet_contact ? `<div class="c">${esc(st.outlet_contact)}</div>` : ''}</div>`;
 }
 function ticketHTML(s) {
   return `<div class="receipt"><h4 style="font-size:22px">${esc(s.id.split('-').pop())}</h4><div class="c b">${esc(state.orderTypes[s.order_type] || '')}${s.table_no ? ' · ' + esc(s.table_no) : ''}</div><div class="c">${esc(fmtTime(s.created_at))}</div><hr>
@@ -631,7 +652,7 @@ async function viewLaporan() {
 }
 
 /* ============================== KELOLA (pemilik) ============================== */
-const SUBS = [['menu', 'Menu & Harga'], ['stok', 'Stok'], ['varian', 'Pilihan Tambahan'], ['tim', 'Tim'], ['atur', 'Pengaturan']];
+const SUBS = [['menu', 'Menu & Harga'], ['stok', 'Stok'], ['varian', 'Pilihan Tambahan'], ['meja', 'Meja & QR'], ['tim', 'Tim'], ['atur', 'Pengaturan']];
 async function viewKelola() {
   $('#main').innerHTML = head('Kelola', 'Atur menu, stok, tim, dan pengaturan toko.') + `<div class="chips" style="margin-bottom:14px">${SUBS.map(([k, l]) => `<button data-act="sub" data-s="${k}" class="${state.sub === k ? 'on' : ''}">${l}</button>`).join('')}</div><div id="sub"></div>`;
   await SUBVIEWS[state.sub]();
@@ -646,34 +667,84 @@ SUBVIEWS.menu = async () => {
   const list = state.products.filter(p => (f === 'Semua' || p.category === f || (f === '__todo' && (p.price == null || p.cost == null || !p.active))) && (!q || `${p.name} ${p.category}`.toLowerCase().includes(q)));
   $('#sub').innerHTML = `<div class="pos-tools"><input id="mq" class="field" type="search" placeholder="🔍  Cari menu…" value="${esc(state.mq || '')}"><button class="btn" data-act="addProduct">+ Tambah menu</button></div>
     <div class="chips" style="margin-bottom:12px">${cats.map(c => `<button data-act="mfilter" data-c="${esc(c)}" class="${f === c ? 'on' : ''}">${esc(c)}</button>`).join('')}<button data-act="mfilter" data-c="__todo" class="${f === '__todo' ? 'on' : ''}">⚠ Perlu dilengkapi (${state.products.filter(p => p.price == null || p.cost == null || !p.active).length})</button></div>
-    <div class="card"><p class="hint" style="margin:0 0 6px">Ketuk menu untuk mengubah harga, HPP (modal), foto, atau menyembunyikannya. Banyak menu memakai foto contoh — ganti bila ada foto yang lebih cocok.</p><div class="list">${list.map(p => { const m = margin(p); return `<button class="item" data-act="editProduct" data-id="${esc(p.id)}" ${p.active ? '' : 'style="opacity:.55"'}><img src="/static/images/${esc(p.image_key)}.jpg" alt="" loading="lazy"><div><div class="t">${esc(p.name)}</div><div class="s">${esc(p.category)}${p.variant ? ' · ' + esc(p.variant) : ''}</div></div><div class="end"><div class="t">${p.price == null ? '<span class="pill bad">Harga kosong</span>' : rp(p.price)}</div><div class="s">${p.cost == null ? '<span class="pill gold">HPP kosong</span>' : `Modal ${rp(p.cost)} · margin ${m}%`}${p.active ? '' : ' <span class="pill">Disembunyikan</span>'}</div></div></button>`; }).join('') || '<div class="empty">Tidak ada menu.</div>'}</div></div>`;
+    <div class="card"><p class="hint" style="margin:0 0 6px">Ketuk menu untuk mengubah harga, HPP (modal), foto, atau menyembunyikannya. Banyak menu memakai foto contoh — ganti bila ada foto yang lebih cocok.</p><div class="list">${list.map(p => { const m = margin(p); return `<button class="item" data-act="editProduct" data-id="${esc(p.id)}" ${p.active ? '' : 'style="opacity:.55"'}>${thumb(p.image_key)}<div><div class="t">${esc(p.name)}</div><div class="s">${esc(p.category)}${p.variant ? ' · ' + esc(p.variant) : ''}</div></div><div class="end"><div class="t">${p.price == null ? '<span class="pill bad">Harga kosong</span>' : rp(p.price)}</div><div class="s">${p.cost == null ? '<span class="pill gold">HPP kosong</span>' : `Modal ${rp(p.cost)} · margin ${m}%`}${p.active ? '' : ' <span class="pill">Disembunyikan</span>'}</div></div></button>`; }).join('') || '<div class="empty">Tidak ada menu.</div>'}</div></div>`;
   $('#mq').oninput = e => { state.mq = e.target.value; clearTimeout(state._mt); state._mt = setTimeout(() => SUBVIEWS.menu(), 250); };
   $('#mq').focus(); const v = $('#mq').value; $('#mq').setSelectionRange(v.length, v.length);
 };
 function productForm(p) {
   const cats = [...new Set(state.products.map(x => x.category))];
+  const builtin = state.images.map(i => [i, i === 'none' ? 'Tanpa foto' : i.replace(/-/g, ' ')]);
+  if (p && p.image_key.startsWith('up-')) builtin.unshift([p.image_key, 'Foto unggahan']);
   return [
     { name: 'name', label: 'Nama menu', value: p?.name, maxlength: 80 },
-    { name: 'category', label: 'Kategori', value: p?.category || 'Makanan', maxlength: 40, list: { id: 'catlist', items: cats }, hint: 'Pilihan tambahan (gula, es, dll.) mengikuti kategori.' },
-    { name: 'variant', label: 'Keterangan (opsional)', value: p?.variant, hint: 'Teks pendek di bawah nama, mis. “Es / Panas”.' },
+    { name: 'category', label: 'Kategori', value: p?.category || 'Makanan', maxlength: 40, list: { id: 'catlist', items: cats }, hint: 'Pilihan tambahan (gula, es, dll.) mengikuti kategori, kecuali diatur khusus di bawah.' },
+    { name: 'variant', label: 'Keterangan singkat (opsional)', value: p?.variant, hint: 'Teks pendek di bawah nama, mis. “Es” atau “Panas”.' },
+    { name: 'description', label: 'Deskripsi (opsional)', type: 'textarea', value: p?.description, maxlength: 300, hint: 'Tampil di halaman pesan pelanggan.' },
     { name: 'price', label: 'Harga jual (Rp)', type: 'money', value: p?.price },
     { name: 'cost', label: 'HPP / modal per porsi (Rp)', type: 'money', placeholder: 'Belum diisi', value: p?.cost, hint: 'Biaya bahan untuk 1 porsi. Diisi agar laba bisa dihitung; boleh dikosongkan dulu.' },
-    { name: 'image_key', label: 'Foto', type: 'select', value: p?.image_key || 'snack', options: state.images.map(i => [i, i.replace(/-/g, ' ')]) },
+    { name: 'featured', type: 'switch', text: '⭐ Menu favorit (tampil paling atas)', value: !!p?.featured },
+    { name: 'image_key', label: 'Foto', type: 'select', value: p?.image_key || 'none', options: builtin },
   ];
+}
+/* kecilkan foto dari kamera/galeri: potong 4:3, maks 800px, JPEG */
+async function toJpeg(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  let sw = bmp.width, sh = bmp.height;
+  if (sw / sh > 4 / 3) sw = Math.round(sh * 4 / 3); else sh = Math.round(sw * 3 / 4);
+  const sx = Math.round((bmp.width - sw) / 2), sy = Math.round((bmp.height - sh) / 2), w = Math.min(800, sw), h = Math.round(w * 3 / 4);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h);
+  return cv.toDataURL('image/jpeg', 0.82);
 }
 function productSheet(p) {
   const fields = productForm(p);
+  const groups = state.mods.groups, catIds = (state.mods.categories[p?.category] || []);
+  let custom = p ? state.mods.product_groups?.[p.id] : undefined;
+  const effective = () => custom !== undefined ? custom : catIds;
+  const photoHTML = p ? `<div class="form-row"><label class="lbl">Foto menu</label><div class="row" style="align-items:flex-start"><div class="prevbox" id="imgPrev">${thumb(p.image_key)}</div><div class="stack" style="flex:1"><label class="btn ghost sm" for="photoFile">📷 Ambil / unggah foto</label><input type="file" id="photoFile" accept="image/*" class="hidden"><div class="hint">Foto dipotong 4:3 dan dikecilkan otomatis. Atau pilih foto bawaan di isian “Foto” di atas.</div></div></div></div>` : '<div class="hint" style="margin-bottom:14px">Simpan menu dulu, lalu buka lagi untuk mengunggah foto dan mengatur pilihan tambahan.</div>';
+  const modHTML = p ? `<div class="form-row"><label class="lbl">Pilihan tambahan untuk menu ini</label><div class="seg" id="modMode"><button type="button" data-v="category" class="${custom === undefined ? 'on' : ''}">Ikuti kategori</button><button type="button" data-v="custom" class="${custom !== undefined ? 'on' : ''}">Atur khusus</button></div><div class="chips" id="modChips" style="margin-top:10px"></div><div class="hint" id="modHint"></div></div>` : '';
   const sh = formSheet({
     title: p ? 'Ubah menu' : 'Tambah menu', fields: fields.concat(p ? [{ name: 'available', type: 'switch', text: 'Tersedia untuk dijual', value: !!p.available }] : []),
-    extra: `<div class="center" style="margin:-4px 0 14px"><img id="imgPrev" src="/static/images/${esc(p?.image_key || 'snack')}.jpg" alt="" style="width:120px;height:90px;object-fit:cover;border-radius:12px"></div>${p ? `<hr style="border:0;border-top:1px solid var(--line2);margin:14px 0"><button class="btn ${p.active ? 'danger' : 'ghost'} block" data-hide>${p.active ? 'Sembunyikan menu ini' : 'Tampilkan menu ini lagi'}</button><p class="hint">Menu yang disembunyikan tidak muncul di kasir, tetapi riwayat penjualannya tetap aman.</p>` : ''}`,
+    extra: `${photoHTML}${modHTML}${p ? `<hr style="border:0;border-top:1px solid var(--line2);margin:14px 0"><button class="btn ${p.active ? 'danger' : 'ghost'} block" data-hide>${p.active ? 'Sembunyikan menu ini' : 'Tampilkan menu ini lagi'}</button><p class="hint">Menu yang disembunyikan tidak muncul di kasir dan halaman pesan, tetapi riwayat penjualannya tetap aman.</p>` : ''}`,
     onMount: s => {
-      s.q('[name=image_key]').addEventListener('change', e => { $('#imgPrev', s.el).src = `/static/images/${e.target.value}.jpg`; });
+      const draw = () => {
+        if (!p) return;
+        const names = effective().map(id => groups.find(g => g.id === id)?.name).filter(Boolean);
+        $('#modChips', s.el).innerHTML = custom !== undefined ? groups.map(g => `<button type="button" data-g="${esc(g.id)}" class="${custom.includes(g.id) ? 'on' : ''}">${esc(g.name)}</button>`).join('') : '';
+        $('#modHint', s.el).textContent = custom !== undefined ? 'Ketuk untuk memasang/melepas. Berlaku langsung.' : (names.length ? 'Mengikuti kategori: ' + names.join(', ') + '.' : 'Kategori ini belum punya pilihan tambahan.');
+      };
+      const saveMods = async mode => { try { await api(`/api/products/${encodeURIComponent(p.id)}/modifiers`, { method: 'PUT', body: { mode, group_ids: mode === 'custom' ? custom : [] } }); state.mods = await api('/api/modifiers'); } catch (e) { toast(e.message, 'bad'); } };
+      s.q('[name=image_key]').addEventListener('change', e => { if ($('#imgPrev', s.el)) $('#imgPrev', s.el).innerHTML = thumb(e.target.value); });
+      $('#photoFile', s.el)?.addEventListener('change', async e => {
+        const f = e.target.files[0]; if (!f) return;
+        try {
+          const data = await toJpeg(f);
+          const r = await api(`/api/products/${encodeURIComponent(p.id)}/photo`, { method: 'POST', body: { image: data } });
+          p.image_key = r.image_key; $('#imgPrev', s.el).innerHTML = thumb(r.image_key);
+          const sel = s.q('[name=image_key]'); if (![...sel.options].some(o => o.value === r.image_key)) sel.insertAdjacentHTML('afterbegin', `<option value="${r.image_key}">Foto unggahan</option>`); sel.value = r.image_key;
+          const row = state.products.find(x => x.id === p.id); if (row) row.image_key = r.image_key;
+          toast('Foto tersimpan', 'ok');
+        } catch (err) { toast(err.message || 'Foto tidak bisa diproses.', 'bad'); }
+      });
+      $('#modMode', s.el)?.addEventListener('click', async e => {
+        const b = e.target.closest('button[data-v]'); if (!b) return;
+        if (b.dataset.v === 'custom' && custom === undefined) custom = [...catIds];
+        if (b.dataset.v === 'category') custom = undefined;
+        $$('#modMode button', s.el).forEach(x => x.classList.toggle('on', x === b));
+        draw(); await saveMods(b.dataset.v);
+      });
+      $('#modChips', s.el)?.addEventListener('click', async e => {
+        const b = e.target.closest('button[data-g]'); if (!b) return;
+        custom = custom.includes(b.dataset.g) ? custom.filter(x => x !== b.dataset.g) : [...custom, b.dataset.g];
+        draw(); await saveMods('custom');
+      });
       s.q('[data-hide]')?.addEventListener('click', async () => { try { await api('/api/products/' + encodeURIComponent(p.id), { method: 'PUT', body: { active: !p.active } }); s.close(); toast(p.active ? 'Menu disembunyikan' : 'Menu ditampilkan lagi', 'ok'); state.products = []; SUBVIEWS.menu(); } catch (e) { toast(e.message, 'bad'); } });
+      draw();
     },
     onSubmit: async (v, s) => {
       if (!v.name) throw new Error('Nama menu wajib diisi.');
       if (v.price == null || v.price < 1) throw new Error('Isi harga jual (minimal Rp1).');
-      const body = { name: v.name, category: v.category || 'Lainnya', variant: v.variant, price: v.price, cost: v.cost, image_key: v.image_key };
+      const body = { name: v.name, category: v.category || 'Lainnya', variant: v.variant, description: v.description, price: v.price, cost: v.cost, image_key: v.image_key, featured: v.featured };
       if (p) { body.available = v.available; await api('/api/products/' + encodeURIComponent(p.id), { method: 'PUT', body }); } else await api('/api/products', { method: 'POST', body });
       s.close(); toast('Menu disimpan', 'ok'); state.products = []; SUBVIEWS.menu();
     },
@@ -689,7 +760,7 @@ SUBVIEWS.stok = async () => {
   $('#sub').innerHTML = `<div class="notice" style="margin-bottom:12px">Stok dihitung <b>per porsi/gelas/piring</b> yang terjual. Menu yang stoknya sudah dihitung akan berkurang otomatis dan tidak bisa dijual melebihi stok. Menu yang belum dilacak tetap bisa dijual tanpa batas.</div>
     <div class="pos-tools"><input id="sq" class="field" type="search" placeholder="🔍  Cari menu…" value="${esc(state.sq || '')}"></div>
     <div class="chips" style="margin-bottom:12px">${[['Semua', 'Semua'], ['tracked', 'Terlacak'], ['untracked', 'Belum dilacak'], ['low', 'Menipis']].map(([k, l]) => `<button data-act="sfilter" data-c="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="card"><div class="list">${list.map(p => `<button class="item" data-act="editStock" data-id="${esc(p.id)}"><img src="/static/images/${esc(p.image_key)}.jpg" alt="" loading="lazy"><div><div class="t">${esc(p.name)}</div><div class="s">${esc(p.category)}</div></div><div class="end">${p.stock_tracked ? `<span class="pill ${low(p) ? 'warn' : 'ok'}">Stok ${p.stock_on_hand ?? '?'}${low(p) ? ' · menipis' : ''}</span>` : '<span class="pill">Belum dilacak</span>'}</div></button>`).join('') || '<div class="empty">Tidak ada menu.</div>'}</div></div>`;
+    <div class="card"><div class="list">${list.map(p => `<button class="item" data-act="editStock" data-id="${esc(p.id)}">${thumb(p.image_key)}<div><div class="t">${esc(p.name)}</div><div class="s">${esc(p.category)}</div></div><div class="end">${p.stock_tracked ? `<span class="pill ${low(p) ? 'warn' : 'ok'}">Stok ${p.stock_on_hand ?? '?'}${low(p) ? ' · menipis' : ''}</span>` : '<span class="pill">Belum dilacak</span>'}</div></button>`).join('') || '<div class="empty">Tidak ada menu.</div>'}</div></div>`;
   $('#sq').oninput = e => { state.sq = e.target.value; clearTimeout(state._st); state._st = setTimeout(() => SUBVIEWS.stok(), 250); };
   $('#sq').focus(); const v = $('#sq').value; $('#sq').setSelectionRange(v.length, v.length);
 };
@@ -714,7 +785,7 @@ SUBVIEWS.varian = async () => {
   const cats = [...new Set(activeProducts().map(p => p.category))].sort();
   $('#sub').innerHTML = `<div class="notice" style="margin-bottom:12px">“Pilihan tambahan” muncul saat kasir mengetuk menu — mis. ukuran, level gula, extra shot. Atur isinya di sini, lalu <b>pasang ke kategori</b> yang memakainya.</div>
     <div class="grid g2"><div class="stack">${m.groups.map(g => `<div class="card"><div class="row between wrap"><div><h3 style="margin:0">${esc(g.name)}</h3><div class="small muted">${g.min_select > 0 ? 'Wajib pilih' : 'Boleh dikosongkan'}${g.max_select > 1 ? ` · maks ${g.max_select} pilihan` : ''}</div></div><div class="row"><button class="btn ghost sm" data-act="editGroup" data-id="${esc(g.id)}">Ubah</button><button class="btn ghost sm" data-act="addOption" data-id="${esc(g.id)}">+ Pilihan</button></div></div>
-      <div class="list" style="margin-top:6px">${g.options.map(o => `<button class="item" data-act="editOption" data-id="${esc(o.id)}" data-g="${esc(g.id)}"><div class="t grow">${esc(o.name)}</div><div class="s">${o.price_delta ? '+' + rp(o.price_delta) : 'gratis'}</div></button>`).join('') || '<div class="empty">Belum ada pilihan.</div>'}</div></div>`).join('')}
+      <div class="list" style="margin-top:6px">${g.options.map(o => `<button class="item" data-act="editOption" data-id="${esc(o.id)}" data-g="${esc(g.id)}"><div class="t grow">${esc(o.name)}</div><div class="s">${o.price_delta ? signed(o.price_delta) : 'gratis'}</div></button>`).join('') || '<div class="empty">Belum ada pilihan.</div>'}</div></div>`).join('')}
       <button class="btn ghost" data-act="addGroup">+ Kelompok pilihan baru</button></div>
     <div class="card"><h3>Pasang ke kategori</h3><p class="hint" style="margin-top:0">Ketuk untuk memasang/melepas. Berlaku langsung.</p>${cats.map(k => `<div style="margin-bottom:14px"><div class="t" style="font-weight:700;margin-bottom:6px">${esc(k)}</div><div class="chips">${m.groups.map(g => { const on = (m.categories[k] || []).includes(g.id); return `<button data-act="toggleCat" data-k="${esc(k)}" data-g="${esc(g.id)}" class="${on ? 'on' : ''}">${esc(g.name)}</button>`; }).join('')}</div></div>`).join('')}</div></div>`;
 };
@@ -729,21 +800,107 @@ SUBVIEWS.tim = async () => {
 SUBVIEWS.atur = async () => {
   const { settings: st } = await api('/api/settings'); state.settings = st;
   $('#sub').innerHTML = `<div class="grid g2">
-    <div class="card"><h3>Info toko & struk</h3><div id="e1"></div>${[{ name: 'outlet_name', label: 'Nama toko', value: st.outlet_name }, { name: 'outlet_address', label: 'Alamat singkat', value: st.outlet_address }, { name: 'receipt_footer', label: 'Pesan di bawah struk', value: st.receipt_footer }, { name: 'receipt_width', label: 'Lebar kertas struk', type: 'seg', value: st.receipt_width, options: [['58', '58 mm'], ['80', '80 mm']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="info">Simpan</button></div>
+    <div class="card"><h3>Info toko & struk</h3><div id="e1"></div>${[{ name: 'outlet_name', label: 'Nama toko', value: st.outlet_name }, { name: 'outlet_address', label: 'Alamat singkat', value: st.outlet_address }, { name: 'receipt_footer', label: 'Pesan di bawah struk', value: st.receipt_footer }, { name: 'outlet_contact', label: 'Kontak (struk & halaman pesan)', value: st.outlet_contact, maxlength: 120 }, { name: 'public_base_url', label: 'Alamat situs untuk QR meja (opsional)', value: st.public_base_url, maxlength: 120, placeholder: 'https://kopisawah.diginavastudio.com', hint: 'Kosongkan bila Anda membuka aplikasi lewat alamat publik toko. Isi hanya bila alamat yang tercetak di QR harus berbeda.' }, { name: 'receipt_width', label: 'Lebar kertas struk', type: 'seg', value: st.receipt_width, options: [['58', '58 mm'], ['80', '80 mm']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="info">Simpan</button></div>
     <div class="card"><h3>Pajak, layanan & pembulatan</h3><div class="notice" style="margin-bottom:12px">Bawaan: <b>semua 0%</b> (tidak ada pajak/layanan). Besaran pajak restoran (PB1) ditetapkan pemerintah daerah — <b>tarif dan kewajibannya belum saya verifikasi</b>; pastikan dulu ke konsultan pajak / Bapenda setempat sebelum mengaktifkan.</div><div id="e2"></div>
     ${[{ name: 'service_percent', label: 'Biaya layanan (%)', type: 'number', value: st.service_percent, hint: 'Dihitung dari harga setelah diskon.' }, { name: 'tax_percent', label: 'Pajak (%)', type: 'number', value: st.tax_percent, hint: 'Dihitung dari harga setelah diskon + biaya layanan. Harga di menu dianggap belum termasuk pajak.' }, { name: 'rounding', label: 'Pembulatan total', type: 'select', value: st.rounding, options: [['0', 'Tidak dibulatkan'], ['100', 'Ke Rp100 terdekat'], ['500', 'Ke Rp500 terdekat'], ['1000', 'Ke Rp1.000 terdekat']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="tax">Simpan</button></div>
     <div class="card"><h3>Diskon oleh kasir</h3><div id="e3"></div>${fieldHTML({ name: 'kasir_max_discount_percent', label: 'Batas diskon kasir (%)', type: 'number', value: st.kasir_max_discount_percent, hint: '0 = kasir tidak boleh memberi diskon (hanya pemilik). Diskon selalu wajib disertai alasan.' })}<button class="btn" data-act="saveSet" data-grp="disc">Simpan</button></div>
-    <div class="card"><h3>Keamanan & data</h3><div class="stack"><button class="btn ghost" data-act="changePin">Ganti PIN saya</button><a class="btn ghost" href="/api/admin/backup" download>⬇ Unduh cadangan data (.sqlite3)</a><button class="btn ghost" data-act="audit">Riwayat aktivitas</button></div><p class="hint">Unduh cadangan rutin (mis. tiap minggu) dan simpan di tempat aman di luar server. Berkas cadangan berisi seluruh data toko — jangan dibagikan.</p></div></div>`;
+    <div class="card"><h3>Keamanan & data</h3><div class="stack"><button class="btn ghost" data-act="changePin">Ganti PIN saya</button><a class="btn ghost" href="/api/admin/backup" download>⬇ Unduh cadangan data (.zip)</a><button class="btn ghost" data-act="audit">Riwayat aktivitas</button></div><p class="hint">Unduh cadangan rutin (mis. tiap minggu) dan simpan di tempat aman di luar server. Berkas cadangan berisi seluruh data toko — jangan dibagikan.</p></div></div>`;
   wireFields($('#sub'));
 };
-const SET_GROUPS = { info: ['outlet_name', 'outlet_address', 'receipt_footer', 'receipt_width'], tax: ['service_percent', 'tax_percent', 'rounding'], disc: ['kasir_max_discount_percent'] };
+const SET_GROUPS = { info: ['outlet_name', 'outlet_address', 'receipt_footer', 'outlet_contact', 'public_base_url', 'receipt_width'], tax: ['service_percent', 'tax_percent', 'rounding'], disc: ['kasir_max_discount_percent'] };
+
+/* ============================== MEJA: pesanan dari QR ============================== */
+const ORDER_PILL = { pending: ['gold', 'Menunggu konfirmasi'], accepted: ['ok', 'Diproses'], ready: ['ok', 'Siap diantar'], served: ['', 'Sudah disajikan'] };
+let actx = null;
+document.addEventListener('click', () => { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* tanpa suara */ } } else if (actx.state === 'suspended') actx.resume(); }, { capture: true });
+function beep() {
+  if (ls.get('ks_sound') === '0' || !actx) return;
+  [0, 0.22].forEach(t => { try { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = t ? 1175 : 880; g.gain.value = 0.18; o.connect(g); g.connect(actx.destination); o.start(actx.currentTime + t); o.stop(actx.currentTime + t + 0.16); } catch { /* abaikan */ } });
+}
+function ticketOf(o) { return { id: o.id, order_type: 'dine_in', table_no: o.table_label + (o.customer_name ? ' · ' + o.customer_name : ''), created_at: o.created_at, items: o.items, note: o.note }; }
+async function viewMeja() {
+  const d = await api('/api/orders');
+  state.mejaData = d;
+  const byTable = {};
+  d.orders.forEach(o => (byTable[o.table_label] ||= []).push(o));
+  const sound = ls.get('ks_sound') !== '0';
+  const calls = d.calls.map(c => `<div class="notice" style="display:flex;gap:10px;align-items:center;margin-bottom:10px"><span style="font-size:22px">${c.kind === 'bill' ? '🧾' : '🙋'}</span><div class="grow"><b>${esc(c.table_label)}</b> ${c.kind === 'bill' ? 'meminta bill' : 'memanggil pelayan'} · ${fmtTime(c.created_at)}</div><button class="btn sm" data-act="callDone" data-id="${c.id}">Selesai</button></div>`).join('');
+  const tables = Object.entries(byTable);
+  $('#main').innerHTML = head('Pesanan Meja', 'Pesanan yang dikirim pelanggan lewat QR di meja. Terima dulu, lalu bayar di kasir saat pelanggan selesai.',
+    `<button class="btn ghost sm" data-act="soundToggle">${sound ? '🔔 Suara aktif' : '🔕 Suara mati'}</button>`)
+    + (state.shift ? '' : '<div class="notice" style="margin-bottom:12px">Kasir belum dibuka — buka kasir dulu (tab Kas) supaya pembayaran meja bisa dicatat.</div>')
+    + calls
+    + (tables.length ? tables.map(([label, list]) => {
+      const payable = list.filter(o => o.status !== 'pending'), waiting = list.length - payable.length, due = payable.reduce((a, o) => a + o.subtotal, 0);
+      return `<div class="card" style="margin-bottom:14px"><div class="row between wrap" style="margin-bottom:8px"><div><h3 style="margin:0">${esc(label)}</h3><div class="small muted">${list.length} pesanan${waiting ? ` · <b>${waiting} menunggu konfirmasi</b>` : ''}</div></div>
+        <button class="btn gold" data-act="payTable" data-t="${esc(label)}" ${payable.length ? '' : 'disabled'}>Bayar meja · ${rp(due)}</button></div>
+        ${list.map(o => { const [k, t] = ORDER_PILL[o.status] || ['', o.status]; return `<div class="card flat" style="margin-top:10px"><div class="row between wrap"><div><b>${esc(o.id)}</b> <span class="small muted">· ${fmtTime(o.created_at)}${o.customer_name ? ' · ' + esc(o.customer_name) : ''}</span></div><span class="pill ${k}">${esc(t)}</span></div>
+          <ul style="margin:8px 0 4px;padding-left:20px">${o.items.map(i => `<li><b>${i.quantity}×</b> ${esc(i.name_snapshot)}${i.modifiers_summary ? `<div class="small muted">${esc(i.modifiers_summary)}</div>` : ''}</li>`).join('')}</ul>
+          ${o.note ? `<div class="notice" style="padding:8px 12px;margin:6px 0">📝 ${esc(o.note)}</div>` : ''}
+          <div class="row wrap" style="margin-top:8px"><b class="grow">${rp(o.subtotal)}</b>
+          ${o.status === 'pending' ? `<button class="btn sm" data-act="orderStatus" data-id="${esc(o.id)}" data-s="accepted">✓ Terima</button><button class="btn danger sm" data-act="orderReason" data-id="${esc(o.id)}" data-s="rejected">Tolak</button>` : ''}
+          ${o.status === 'accepted' ? `<button class="btn sm" data-act="orderStatus" data-id="${esc(o.id)}" data-s="ready">Siap</button>` : ''}
+          ${o.status === 'accepted' || o.status === 'ready' ? `<button class="btn sm ghost" data-act="orderStatus" data-id="${esc(o.id)}" data-s="served">Sudah disajikan</button>` : ''}
+          <button class="btn sm ghost" data-act="ticketOrder" data-id="${esc(o.id)}">Tiket dapur</button>
+          ${o.status !== 'pending' ? `<button class="btn sm danger" data-act="orderReason" data-id="${esc(o.id)}" data-s="cancelled">Batalkan</button>` : ''}</div></div>`; }).join('')}</div>`;
+    }).join('') : `<div class="card"><div class="empty">Belum ada pesanan dari meja.<br><span class="small">Pesanan baru akan muncul di sini otomatis dan berbunyi.${isOwner() ? ' Pasang QR di meja lewat <b>Kelola → Meja & QR</b>.' : ''}</span></div></div>`);
+}
+let sumPrev = null;
+async function pollOrders() {
+  if (!state.me) return;
+  try {
+    const s = await api('/api/orders/summary'), n = s.pending + s.calls;
+    const b = $('#mejaBadge'); if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+    document.title = n ? `(${n}) Kopi Sawah — Kasir` : 'Kopi Sawah — Kasir';
+    if (sumPrev) {
+      const newOrder = s.latest_pending && s.latest_pending > (sumPrev.latest_pending || '');
+      const newCall = s.latest_call && s.latest_call > (sumPrev.latest_call || 0);
+      if (newOrder || newCall) { beep(); toast(newOrder ? 'Pesanan baru dari meja!' : 'Meja memanggil Anda', 'ok'); }
+      const changed = ['pending', 'calls', 'active', 'latest_pending', 'latest_call'].some(k => s[k] !== sumPrev[k]);
+      if (changed && state.view === 'meja' && !state.sheets.length) viewMeja().catch(() => { });
+    }
+    sumPrev = s;
+  } catch { /* abaikan; coba lagi */ }
+}
+
+/* ============================== KELOLA: Meja & QR ============================== */
+const publicBase = () => (state.settings.public_base_url || location.origin).replace(/\/+$/, '');
+const tableURL = t => `${publicBase()}/m/${t.token}`;
+const qrSVG = url => { const q = qrcode(0, 'M'); q.addData(url); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); };
+const qrCard = t => `<div class="qrcard"><img src="/static/images/logo-badge.png" alt=""><h3>Pesan dari meja</h3><div class="qrbox">${qrSVG(tableURL(t))}</div><div class="tn">${esc(t.label)}</div><p>Scan QR dengan kamera HP,<br>pilih menu, lalu kirim pesanan.<br><b>Bayar di kasir.</b></p><small>${esc(state.settings.outlet_contact || '')}</small></div>`;
+function printQR(list) {
+  const pa = $('#printArea'); pa.className = 'print-area qr'; pa.innerHTML = `<div class="qrgrid">${list.map(qrCard).join('')}</div>`;
+  setTimeout(() => window.print(), 80);
+}
+SUBVIEWS.meja = async () => {
+  const [t, st] = await Promise.all([api('/api/tables'), api('/api/settings')]);
+  state.settings = st.settings; state.tables = t.items;
+  $('#sub').innerHTML = `<div class="notice" style="margin-bottom:12px">Tiap meja punya QR sendiri. Pelanggan scan → pilih menu → pesanan masuk ke tab <b>Meja</b> di kasir (berbunyi). Pelanggan <b>membayar di kasir</b>. Cetak QR, lalu tempel/laminasi di meja.<br>Alamat yang dipakai di QR: <b>${esc(publicBase())}</b>${state.settings.public_base_url ? '' : ' (alamat yang sedang Anda buka). Bila perlu mengganti, isi di Pengaturan.'}</div>
+    <div class="row wrap" style="margin-bottom:12px"><button class="btn" data-act="addTables">+ Tambah banyak meja</button><button class="btn ghost" data-act="addTable">+ Satu meja (nama bebas)</button><span class="grow"></span><button class="btn ghost" data-act="printAllQR" ${t.items.some(x => x.active) ? '' : 'disabled'}>🖨 Cetak semua QR</button></div>
+    <div class="card"><div class="list">${t.items.map(x => `<button class="item" data-act="tableQR" data-id="${x.id}" ${x.active ? '' : 'style="opacity:.55"'}><span class="avatar" style="border-radius:12px">${icon('table')}</span><div><div class="t">${esc(x.label)}</div><div class="s">${x.active ? 'Aktif' : 'Nonaktif'}</div></div><div class="end"><span class="pill gold">Lihat QR</span></div></button>`).join('') || '<div class="empty">Belum ada meja. Ketuk “Tambah banyak meja”.</div>'}</div></div>`;
+};
+function tableQRSheet(t) {
+  const url = tableURL(t);
+  openSheet({
+    title: t.label, wide: false,
+    body: `<div class="center"><div style="width:260px;max-width:100%;margin:0 auto;border:1px solid var(--line);border-radius:12px;padding:8px;background:#fff">${qrSVG(url)}</div><p class="small muted" style="word-break:break-all;margin:10px 0 0">${esc(url)}</p><p class="hint">Coba scan dengan HP Anda untuk memastikan halaman pesan terbuka.</p></div>`,
+    footer: `<button class="btn ghost" data-more>Ubah / ganti kode</button><button class="btn" data-pr>Cetak kartu meja</button>`,
+    onMount: s => {
+      s.q('[data-pr]').onclick = () => printQR([t]);
+      s.q('[data-more]').onclick = () => { s.close(); formSheet({ title: `Ubah ${t.label}`, fields: [{ name: 'label', label: 'Nama meja', value: t.label, maxlength: 30 }, { name: 'active', type: 'switch', text: 'Meja aktif (QR bisa dipakai memesan)', value: !!t.active }],
+        extra: '<hr style="border:0;border-top:1px solid var(--line2);margin:14px 0"><button class="btn danger block" data-rot>Ganti kode QR</button><p class="hint">Bila foto QR meja ini tersebar atau disalahgunakan: kode lama langsung tidak berlaku, lalu cetak ulang kartunya.</p>',
+        onMount: f => f.q('[data-rot]').onclick = async () => { if (!await confirmSheet({ title: 'Ganti kode QR?', text: `QR lama ${esc(t.label)} langsung tidak berlaku. Anda perlu mencetak dan memasang QR yang baru.`, ok: 'Ya, ganti kode', danger: true })) return; await api(`/api/tables/${t.id}/rotate`, { method: 'POST' }); f.close(); toast('Kode QR diganti. Cetak ulang kartunya.', 'ok'); SUBVIEWS.meja(); },
+        onSubmit: async (v, f) => { if (!v.label) throw new Error('Nama meja wajib diisi.'); await api(`/api/tables/${t.id}`, { method: 'PUT', body: v }); f.close(); toast('Disimpan', 'ok'); SUBVIEWS.meja(); } }); };
+    },
+  });
+}
 
 /* ============================== aksi (klik) ============================== */
-const VIEWS = { home: viewHome, kasir: viewKasir, pesanan: viewPesanan, laporan: viewLaporan, kelola: viewKelola, kas: viewKas };
+const VIEWS = { home: viewHome, kasir: viewKasir, meja: viewMeja, pesanan: viewPesanan, laporan: viewLaporan, kelola: viewKelola, kas: viewKas };
 const ACT = {
   reload: () => location.reload(),
   go: el => { if (el.dataset.sub) state.sub = el.dataset.sub; go(el.dataset.view); },
-  logout: async () => { try { await api('/api/auth/logout', { method: 'POST' }); } catch { /* abaikan */ } state.me = null; state.products = []; state.mods = null; state.shift = null; boot(); },
+  logout: async () => { clearInterval(state._poll); document.title = 'Kopi Sawah — Kasir'; try { await api('/api/auth/logout', { method: 'POST' }); } catch { /* abaikan */ } state.me = null; state.products = []; state.mods = null; state.shift = null; boot(); },
   pickStaff: el => pinScreen(parseInt(el.dataset.id, 10), el.dataset.name),
   setCash: el => { $('#openCash').value = el.dataset.v === '0' ? '' : nf.format(parseInt(el.dataset.v, 10)); $('#openCash').focus(); },
   openShift: async el => {
@@ -767,7 +924,7 @@ const ACT = {
     if (state.soldMode) return ACT.toggleAvail(el);
     if (p.price == null) return toast('Harga menu ini belum diisi. Minta pemilik mengisinya di Kelola → Menu & Harga.', 'bad');
     if (soldOut(p)) return toast(`${p.name} sedang habis.`, 'bad');
-    const gs = groupsFor(p.category);
+    const gs = groupsFor(p);
     if (gs.length) variantSheet(p, gs); else if (addToCart(p, [])) toast(`${p.name} ditambahkan`, 'ok');
   },
   toggleAvail: async el => {
@@ -786,13 +943,28 @@ const ACT = {
   sub: el => { state.sub = el.dataset.s; $$('[data-act=sub]').forEach(b => b.classList.toggle('on', b === el)); SUBVIEWS[state.sub](); },
   mfilter: el => { state.mf = el.dataset.c; SUBVIEWS.menu(); },
   sfilter: el => { state.sf = el.dataset.c; SUBVIEWS.stok(); },
-  addProduct: () => productSheet(null),
-  editProduct: el => productSheet(prod(el.dataset.id)),
+  addProduct: () => loadMods().then(() => productSheet(null)),
+  editProduct: el => loadMods().then(() => productSheet(prod(el.dataset.id))),
+  soundToggle: () => { ls.set('ks_sound', ls.get('ks_sound') === '0' ? '1' : '0'); if (ls.get('ks_sound') !== '0') beep(); viewMeja(); },
+  orderStatus: async el => { try { await api(`/api/orders/${encodeURIComponent(el.dataset.id)}/status`, { method: 'POST', body: { status: el.dataset.s } }); if (el.dataset.s === 'accepted') { const o = state.mejaData.orders.find(x => x.id === el.dataset.id); toast('Pesanan diterima. Cetak tiket dapur bila perlu.', 'ok'); } viewMeja(); pollOrders(); } catch (e) { toast(e.message, 'bad'); viewMeja(); } },
+  orderReason: el => formSheet({ title: el.dataset.s === 'rejected' ? 'Tolak pesanan' : 'Batalkan pesanan', intro: 'Alasan akan terlihat oleh pelanggan di halaman pesannya.', fields: [{ name: 'reason', label: 'Alasan', maxlength: 160, placeholder: 'mis. menu habis / dapur tutup' }], submit: el.dataset.s === 'rejected' ? 'Tolak pesanan' : 'Batalkan pesanan', danger: true, onSubmit: async (v, f) => { if (!v.reason) throw new Error('Isi alasannya dulu.'); await api(`/api/orders/${encodeURIComponent(el.dataset.id)}/status`, { method: 'POST', body: { status: el.dataset.s, reason: v.reason } }); f.close(); viewMeja(); pollOrders(); } }),
+  ticketOrder: el => { const o = state.mejaData.orders.find(x => x.id === el.dataset.id); if (o) printHTML(ticketHTML(ticketOf(o))); },
+  callDone: async el => { try { await api(`/api/calls/${el.dataset.id}/done`, { method: 'POST' }); viewMeja(); pollOrders(); } catch (e) { toast(e.message, 'bad'); } },
+  payTable: async el => {
+    const list = state.mejaData.orders.filter(o => o.table_label === el.dataset.t && o.status !== 'pending');
+    if (!state.shift) { toast('Buka kasir dulu (tab Kas).', 'bad'); return; }
+    if (!list.length) return;
+    checkoutSheet({ orders: list, sub: list.reduce((a, o) => a + o.subtotal, 0), label: el.dataset.t });
+  },
+  tableQR: el => tableQRSheet(state.tables.find(x => x.id === parseInt(el.dataset.id, 10))),
+  printAllQR: () => printQR(state.tables.filter(x => x.active)),
+  addTables: () => formSheet({ title: 'Tambah banyak meja', fields: [{ name: 'prefix', label: 'Awalan nama', value: 'Meja', maxlength: 20 }, { name: 'start', label: 'Mulai dari nomor', type: 'number', value: '1' }, { name: 'count', label: 'Jumlah meja', type: 'number', value: '10', hint: 'Contoh: awalan “Meja”, mulai 1, jumlah 10 → Meja 1 … Meja 10. Nama yang sudah ada dilewati.' }], submit: 'Buat meja', onSubmit: async (v, f) => { if (!/^\d+$/.test(v.count) || !/^\d+$/.test(v.start)) throw new Error('Isi nomor dan jumlah dengan angka.'); await api('/api/tables', { method: 'POST', body: { prefix: v.prefix, start: parseInt(v.start, 10), count: parseInt(v.count, 10) } }); f.close(); toast('Meja dibuat. Sekarang cetak QR-nya.', 'ok'); SUBVIEWS.meja(); } }),
+  addTable: () => formSheet({ title: 'Tambah satu meja', fields: [{ name: 'label', label: 'Nama meja', maxlength: 30, placeholder: 'mis. Gazebo 1 / Teras' }], submit: 'Buat meja', onSubmit: async (v, f) => { if (!v.label) throw new Error('Nama meja wajib diisi.'); await api('/api/tables', { method: 'POST', body: { label: v.label } }); f.close(); toast('Meja dibuat.', 'ok'); SUBVIEWS.meja(); } }),
   editStock: el => stockSheet(prod(el.dataset.id)),
   addGroup: () => formSheet({ title: 'Kelompok pilihan baru', fields: [{ name: 'name', label: 'Nama kelompok', placeholder: 'mis. Topping', maxlength: 60 }, { name: 'required', type: 'switch', text: 'Wajib dipilih (kasir harus memilih salah satu)', value: false }, { name: 'max', label: 'Maksimal pilihan', type: 'select', value: '1', options: [['1', '1 pilihan'], ['2', '2 pilihan'], ['3', '3 pilihan'], ['5', '5 pilihan']] }], submit: 'Buat kelompok', onSubmit: async (v, s) => { if (!v.name) throw new Error('Nama kelompok wajib diisi.'); await api('/api/modifiers/groups', { method: 'POST', body: { name: v.name, min_select: v.required ? 1 : 0, max_select: parseInt(v.max, 10) } }); s.close(); state.mods = null; toast('Kelompok dibuat. Tambahkan pilihannya.', 'ok'); SUBVIEWS.varian(); } }),
   editGroup: el => { const g = state.mods.groups.find(x => x.id === el.dataset.id); formSheet({ title: `Ubah ${g.name}`, fields: [{ name: 'name', label: 'Nama kelompok', value: g.name, maxlength: 60 }, { name: 'required', type: 'switch', text: 'Wajib dipilih', value: g.min_select > 0 }, { name: 'max', label: 'Maksimal pilihan', type: 'select', value: String(g.max_select), options: [['1', '1 pilihan'], ['2', '2 pilihan'], ['3', '3 pilihan'], ['5', '5 pilihan']] }], extra: '<hr style="border:0;border-top:1px solid var(--line2);margin:14px 0"><button class="btn danger block" data-del>Hapus kelompok ini</button>', onMount: s => s.q('[data-del]').onclick = async () => { if (!await confirmSheet({ title: `Hapus ${g.name}?`, text: 'Kelompok ini tidak akan muncul lagi di kasir. Riwayat penjualan tetap aman.', ok: 'Ya, hapus', danger: true })) return; await api('/api/modifiers/group/' + encodeURIComponent(g.id), { method: 'DELETE' }); s.close(); state.mods = null; SUBVIEWS.varian(); }, onSubmit: async (v, s) => { if (!v.name) throw new Error('Nama kelompok wajib diisi.'); await api('/api/modifiers/group/' + encodeURIComponent(g.id), { method: 'PUT', body: { name: v.name, min_select: v.required ? 1 : 0, max_select: parseInt(v.max, 10) } }); s.close(); state.mods = null; toast('Disimpan', 'ok'); SUBVIEWS.varian(); } }); },
-  addOption: el => formSheet({ title: 'Pilihan baru', fields: [{ name: 'name', label: 'Nama pilihan', maxlength: 60 }, { name: 'delta', label: 'Tambahan harga (Rp)', type: 'money', value: 0, hint: 'Kosongkan / 0 bila gratis.' }], onSubmit: async (v, s) => { if (!v.name) throw new Error('Nama pilihan wajib diisi.'); await api('/api/modifiers/options', { method: 'POST', body: { group_id: el.dataset.id, name: v.name, price_delta: v.delta || 0 } }); s.close(); state.mods = null; toast('Pilihan ditambahkan', 'ok'); SUBVIEWS.varian(); } }),
-  editOption: el => { const o = state.mods.groups.find(g => g.id === el.dataset.g).options.find(x => x.id === el.dataset.id); formSheet({ title: `Ubah ${o.name}`, fields: [{ name: 'name', label: 'Nama pilihan', value: o.name, maxlength: 60 }, { name: 'delta', label: 'Tambahan harga (Rp)', type: 'money', value: o.price_delta }], extra: '<hr style="border:0;border-top:1px solid var(--line2);margin:14px 0"><button class="btn danger block" data-del>Hapus pilihan ini</button>', onMount: s => s.q('[data-del]').onclick = async () => { await api('/api/modifiers/option/' + encodeURIComponent(o.id), { method: 'DELETE' }); s.close(); state.mods = null; toast('Pilihan dihapus', 'ok'); SUBVIEWS.varian(); }, onSubmit: async (v, s) => { if (!v.name) throw new Error('Nama pilihan wajib diisi.'); await api('/api/modifiers/option/' + encodeURIComponent(o.id), { method: 'PUT', body: { name: v.name, price_delta: v.delta || 0 } }); s.close(); state.mods = null; toast('Disimpan', 'ok'); SUBVIEWS.varian(); } }); },
+  addOption: el => formSheet({ title: 'Pilihan baru', fields: [{ name: 'name', label: 'Nama pilihan', maxlength: 60 }, { name: 'delta', label: 'Tambahan harga (Rp)', type: 'smoney', value: 0, hint: 'Kosongkan / 0 bila gratis. Isi dengan minus (mis. -4000) untuk potongan, seperti “tanpa nasi”.' }], onSubmit: async (v, s) => { if (!v.name) throw new Error('Nama pilihan wajib diisi.'); await api('/api/modifiers/options', { method: 'POST', body: { group_id: el.dataset.id, name: v.name, price_delta: v.delta || 0 } }); s.close(); state.mods = null; toast('Pilihan ditambahkan', 'ok'); SUBVIEWS.varian(); } }),
+  editOption: el => { const o = state.mods.groups.find(g => g.id === el.dataset.g).options.find(x => x.id === el.dataset.id); formSheet({ title: `Ubah ${o.name}`, fields: [{ name: 'name', label: 'Nama pilihan', value: o.name, maxlength: 60 }, { name: 'delta', label: 'Tambahan harga (Rp)', type: 'smoney', value: o.price_delta, hint: 'Boleh minus (mis. -4000) untuk potongan.' }], extra: '<hr style="border:0;border-top:1px solid var(--line2);margin:14px 0"><button class="btn danger block" data-del>Hapus pilihan ini</button>', onMount: s => s.q('[data-del]').onclick = async () => { await api('/api/modifiers/option/' + encodeURIComponent(o.id), { method: 'DELETE' }); s.close(); state.mods = null; toast('Pilihan dihapus', 'ok'); SUBVIEWS.varian(); }, onSubmit: async (v, s) => { if (!v.name) throw new Error('Nama pilihan wajib diisi.'); await api('/api/modifiers/option/' + encodeURIComponent(o.id), { method: 'PUT', body: { name: v.name, price_delta: v.delta || 0 } }); s.close(); state.mods = null; toast('Disimpan', 'ok'); SUBVIEWS.varian(); } }); },
   toggleCat: async el => {
     const k = el.dataset.k, g = el.dataset.g, cur = new Set(state.mods.categories[k] || []);
     cur.has(g) ? cur.delete(g) : cur.add(g);
@@ -833,6 +1005,7 @@ async function boot() {
     const saved = ls.get('ks_view');
     const ok = navItems().map(n => n[0]);
     await go(ok.includes(saved) ? saved : (isOwner() ? 'home' : 'kasir'));
+    sumPrev = null; pollOrders(); clearInterval(state._poll); state._poll = setInterval(pollOrders, 6000);
   } catch (e) {
     $('#app').innerHTML = `<div class="auth"><div class="card"><h2>Tidak bisa memuat</h2><div class="notice bad" style="margin:12px 0">${esc(e.message)}</div><button class="btn big block" data-act="reload">Coba lagi</button></div></div>`;
   }
