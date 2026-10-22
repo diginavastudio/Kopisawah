@@ -23,10 +23,5 @@ BATAS PEMAKAIAN
 • Jangan membuka port aplikasi 8791 ke jaringan; hanya Nginx yang boleh meneruskan ke alamat lokal.
 • HTTPS publik hanya membuka pratinjau baca-saja; jangan hapus pembatas metode atau catat transaksi nyata tanpa persetujuan dan pengaman tambahan.
 
-Uji deploy otomatis: baris ini ditambahkan dari salinan lain pada 2026-10-22.
 
-Baris uji kedua: perubahan ini dibuat DI GITHUB (salinan lain) pada 2026-10-22.
 
-Baris uji ketiga dari GitHub pada 2026-10-22T00:07:40Z.
-
-Uji mode otomatis: baris dari GitHub pada 2026-10-22T00:18:49Z.

@@ -268,3 +268,59 @@ Kalau hanya ingin mengambil versi GitHub dan membuang perubahan lokal di server:
 - `/api/health` melaporkan `version.commit = 1c1eb89` dan lencana versi tampil di kepala halaman.
 - Uji kegagalan: skrip pernah menolak deploy karena `node --check` gagal (berkas sementara tanpa akhiran
   `.js`), lalu **rollback otomatis** berjalan dan situs tetap 200 — jalur pengaman terbukti bekerja.
+
+---
+
+# Ronde 4b — 23 Oktober 2026: mode otomatis DIAKTIFKAN
+
+## 18. Setiap perubahan di GitHub langsung tayang (maksimal ±1 menit)
+Timer `kopi-sawah-deploy.timer` sudah dipasang dan diaktifkan. Alurnya tiap **1 menit**:
+
+```
+git fetch origin main
+  ├─ commit sama?            -> selesai (diam, tidak restart)
+  ├─ server lebih baru?      -> dilewati (ada commit lokal belum didorong)
+  ├─ versi ini pernah gagal? -> dilewati (kunci DEPLOY-HOLD)
+  └─ ada versi baru          -> fast-forward -> cek py_compile + node --check
+                                -> restart layanan -> tunggu /api/health sehat
+                                -> tulis VERSION -> hapus DEPLOY-HOLD
+```
+
+Kalau ada langkah yang gagal, skrip **mengembalikan ke commit sebelumnya**, menjalankan ulang
+layanan, dan menulis `/var/lib/kopi-sawah/DEPLOY-HOLD` supaya versi rusak itu **tidak dicoba
+berulang-ulang** (tidak terjadi restart berkala). Setelah diperbaiki, cukup hapus berkas itu:
+
+```
+rm -f /var/lib/kopi-sawah/DEPLOY-HOLD
+```
+
+## 19. Memantau dan mematikan
+```
+systemctl list-timers kopi-sawah-deploy --no-pager          # kapan cek berikutnya
+tail -f /var/log/kopi-sawah-deploy.log                      # riwayat pasang/gagal
+journalctl -u kopi-sawah-deploy.service -n 30 --no-pager    # keluaran tiap percobaan
+curl -s http://127.0.0.1:8791/api/health                    # versi yang sedang jalan
+
+systemctl disable --now kopi-sawah-deploy.timer             # matikan mode otomatis
+systemctl enable  --now kopi-sawah-deploy.timer             # hidupkan lagi
+/opt/kopi-sawah/deploy/tarik-dari-github.sh                 # pasang manual kapan saja
+```
+
+## 20. Versi yang ditampilkan
+`/api/health` mengirim `version` yang dibaca **langsung dari `.git/HEAD`** (commit yang benar-benar
+ada di disk) ditambah `deployed_at` dari berkas `/var/lib/kopi-sawah/VERSION`. Lencana di kepala
+aplikasi menampilkan waktu pasang terakhir, mis. **“versi 22 Okt 2026, 07.19”**.
+
+## 21. Uji mode otomatis (23 Okt 2026 00:19 UTC)
+- Commit `91f9083` dibuat dari salinan repo lain (meniru "menambah fitur di GitHub") lalu didorong.
+- **Tanpa perintah apa pun** di server, dalam ±1 menit: server berpindah `4683c47` → `91f9083`,
+  layanan direstart, `/api/health` sehat, `VERSION` = `91f9083 2026-10-22T00:19:44Z`.
+- Log: `ada versi baru: 4683c47 -> 91f9083` lalu `SUKSES terpasang: 91f9083 ...`.
+
+## 22. Batasan yang perlu diingat
+- Yang dipantau hanya branch **`main`**. Commit di branch lain tidak akan tayang.
+- Repo bersifat publik: siapa pun boleh **membaca**, tetapi hanya pemilik repo dan kunci deploy di
+  server ini yang bisa **mendorong** perubahan.
+- Perubahan hanya **berkas** (kode, HTML, foto). Perubahan **basis data** tidak ikut lewat GitHub.
+- Foto menu di-cache peramban 1 tahun; mengganti foto dengan nama berkas sama perlu *hard refresh*.
+- Jendela tayang maksimal ±1 menit — bukan instan. Kalau butuh instan, perlu *webhook* (belum dipasang).
