@@ -1203,8 +1203,8 @@
     "id": 121,
     "name": "Long Black",
     "category": "Kopi",
-    "price": null,
-    "variant": "Harga perlu konfirmasi",
+    "price": 10000,
+    "variant": "",
     "stock": null,
     "image_key": "coffee-long-black",
     "draft": true
@@ -1213,8 +1213,8 @@
     "id": 122,
     "name": "Ice Americano",
     "category": "Kopi",
-    "price": null,
-    "variant": "Harga perlu konfirmasi",
+    "price": 15000,
+    "variant": "",
     "stock": null,
     "image_key": "coffee-ice-americano",
     "draft": true
