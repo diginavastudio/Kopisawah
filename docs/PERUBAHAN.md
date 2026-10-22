@@ -434,3 +434,20 @@ Commit `eacd719` dari cabang PR digabung ke `main` **dengan mode tanpa login dip
 Salinan DB live + DB kosong: **11/11 lulus** — tanpa login aktif, katalog 124 dengan patch PDF,
 shift terpakai, transaksi Americano Rp15.000 dengan varian per produk, anti dobel `duplicate: true`,
 laporan jalan, `sw.js` + `order.js` + `vendor/qrcode.js` tersedia (200), pemasangan DB baru 124 menu.
+
+
+---
+
+# Ronde 8 — 22 Oktober 2026: commit `93d3a52` (layout layar lebar, hub laporan, beranda, pelanggan)
+
+## 33. Isi
+- **Layout layar lebar** dirapikan + audit ukuran layar (`tests/viewport_audit.js`).
+- **Hub laporan** (5 laporan) dan **beranda lengkap** (panduan, ringkasan, perhatian).
+- **Data pelanggan** pada pesanan.
+- Uji peramban baru: `tests/browser_ronde6.js`; `tests/test_api.py` bertambah.
+
+## 34. Penggabungan
+- Konflik hanya `docs/PERUBAHAN.md` → dipakai versi kita (berkas ini), catatan ronde 8 ditambahkan.
+- `app.py` dan `static/app.js` tergabung otomatis; **tambalan mode tanpa login tetap utuh**
+  (`TANPA_LOGIN` 13 kemunculan, `py_compile` OK; `state.tanpaLogin` + tombol Keluar bersyarat masih ada).
+- Alat deploy (`deploy/tarik-dari-github.sh`, unit `kopi-sawah-deploy.*`) tetap ada di `main`.

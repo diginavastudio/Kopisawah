@@ -84,7 +84,7 @@ const CHROME = process.env.CHROME_PATH || undefined;
     await page.click('[data-act=editStock] >> nth=0'); await page.waitForSelector('#theForm'); await shot('11b-hitung-stok'); await page.click('[data-cancel]');
     await page.click('[data-act=sub][data-s=varian]'); await page.waitForSelector('[data-act=editGroup]'); await shot('12-varian');
     await page.click('[data-act=sub][data-s=tim]'); await page.waitForSelector('[data-act=editUser]'); await shot('13-tim');
-    await page.click('#tabs [data-view=laporan]'); await page.waitForSelector('.stats'); await shot('14-laporan');
+    await page.click('#tabs [data-view=laporan]'); await page.waitForSelector('[data-act=repOpen]'); await shot('14-laporan-hub'); await page.click('[data-act=repOpen][data-r=sales]'); await page.waitForSelector('.stats'); await shot('14-laporan');
     ok('laporan menampilkan 1 transaksi', (await page.textContent('.stats')).includes('1'));
     await page.click('#tabs [data-view=pesanan]'); await page.waitForSelector('[data-act=sale]'); await shot('15-pesanan');
     await page.click('[data-act=sale]'); await page.waitForSelector('[data-void]'); await shot('16-nota'); await page.click('[data-close]');

@@ -509,6 +509,59 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(owner.call("POST", "/api/orders/move", {"order_ids": [o1], "to_table_id": a["id"]})[0], 409, "yang sudah dibayar tak bisa dipindah")
         self.assertEqual(owner.call("POST", "/api/sales", {"order_ids": [o2], "payment_method": "tunai", "amount_paid": 20000, "request_id": "split-req-002"})[0], 201)
 
+    # ------------------------------------------------------------------ Ronde 6: laporan & pelanggan
+    def test_21_laporan_pelanggan_dan_beranda(self):
+        owner = self.login("Digi", OWNER_PIN)
+        kasir = self.login("Sari", "2468")
+        p = self.products(owner)
+        item = [{"product_id": p["Bakmi Goreng"]["id"], "quantity": 2, "modifiers": []}]
+        for i, nm in enumerate(["Bu Sari", "bu sari", "Pak Budi"]):
+            self.assertEqual(owner.call("POST", "/api/sales", {"items": item, "payment_method": "qris", "customer_name": nm, "request_id": f"cust-sale-{i:03d}"})[0], 201)
+        self.assertEqual(owner.call("POST", "/api/sales", {"items": item, "payment_method": "qris", "request_id": "cust-sale-anon1"})[0], 201)
+        # transaksi pelanggan: nama tak membedakan huruf besar/kecil
+        r = owner.call("GET", "/api/reports/customers")[1]
+        by = {c["name"].lower(): c for c in r["items"]}
+        self.assertEqual((by["bu sari"]["n"], by["bu sari"]["total"]), (3, 120000))  # 2 dari tes ini + 1 dari pesanan QR atas nama Bu Sari
+        self.assertEqual(by["pak budi"]["n"], 1)
+        self.assertGreaterEqual(r["anonymous"]["n"], 1)
+        det = owner.call("GET", "/api/reports/customer?name=BU%20SARI")[1]
+        self.assertEqual(len(det["items"]), 3)
+        self.assertEqual(det["items"][0]["items"][0]["name_snapshot"], "Bakmi Goreng")
+        self.assertEqual(kasir.call("GET", "/api/reports/customers")[0], 403)
+        self.assertIn("Bu Sari", kasir.call("GET", "/api/customers/names")[1]["items"] + owner.call("GET", "/api/customers/names")[1]["items"])
+        # HP hanya pemilik; nomor dibersihkan
+        self.assertEqual(kasir.call("PUT", "/api/customers", {"name": "Bu Sari", "phone": "0812"})[0], 403)
+        self.assertEqual(owner.call("PUT", "/api/customers", {"name": "Bu Sari", "phone": "0812-3456 <script>", "note": "suka kopi"})[0], 200)
+        c2 = {c["name"].lower(): c for c in owner.call("GET", "/api/reports/customers")[1]["items"]}
+        self.assertEqual(c2["bu sari"]["phone"], "0812-3456")
+        # ganti nama menggabungkan riwayat
+        self.assertEqual(owner.call("PUT", "/api/customers", {"name": "Pak Budi", "rename_to": "Bu Sari"})[0], 200)
+        c3 = {c["name"].lower(): c for c in owner.call("GET", "/api/reports/customers")[1]["items"]}
+        self.assertEqual(c3["bu sari"]["n"], 4)
+        self.assertNotIn("pak budi", c3)
+        # laporan lain
+        pr = owner.call("GET", "/api/reports/products?sort=revenue")[1]
+        self.assertTrue(pr["items"] and pr["total_qty"] == sum(i["qty"] for i in pr["items"]))
+        self.assertGreaterEqual(pr["items"][0]["revenue"], pr["items"][-1]["revenue"])
+        mo = owner.call("GET", "/api/reports/monthly?months=12")[1]["items"]
+        self.assertEqual(len(mo), 12)
+        self.assertGreater(mo[-1]["total"], 0)
+        tr = owner.call("GET", "/api/reports/transactions")[1]
+        self.assertTrue(tr["items"] and "unpaid_orders" in tr)
+        for kind in ("products", "customers"):
+            st, raw, hdr = owner.call("GET", f"/api/reports/export.csv?type={kind}", raw=True)
+            self.assertEqual(st, 200)
+            self.assertIn("text/csv", hdr["Content-Type"])
+        # ringkasan Beranda lengkap
+        s = owner.call("GET", "/api/reports/summary")[1]
+        for key in ("stats", "series30", "hours_today", "methods_today", "types_today", "categories_month", "top_week", "customers", "open_orders", "void_today"):
+            self.assertIn(key, s)
+        self.assertEqual(len(s["series30"]), 30)
+        self.assertEqual(s["stats"]["today"]["n"], s["today_transactions"])
+        self.assertEqual(kasir.call("GET", "/api/reports/products")[0], 403)
+        # kasir boleh menulis nama pelanggan di nota (opsional)
+        self.assertEqual(kasir.call("GET", "/api/shifts/current")[0], 200)
+
 
 if __name__ == "__main__":
     unittest.main()

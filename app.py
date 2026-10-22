@@ -465,6 +465,9 @@ def init_db():
             unit_price INTEGER NOT NULL CHECK(unit_price > 0), quantity INTEGER NOT NULL CHECK(quantity > 0),
             line_total INTEGER NOT NULL, modifiers_summary TEXT NOT NULL DEFAULT '',
             modifiers_json TEXT NOT NULL DEFAULT '[]');
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            phone TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS table_calls (
             id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER NOT NULL REFERENCES dining_tables(id),
             table_label TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('waiter','bill')),
@@ -488,6 +491,9 @@ def init_db():
         ensure_column(c, "products", "featured", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(c, "products", "custom_modifiers", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(c, "sales", "order_ids", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(c, "sales", "customer_name", "TEXT NOT NULL DEFAULT ''")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_name) WHERE customer_name!=''")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sales_bdate ON sales(business_date)")
         rebuild_modifiers_without_check(c)
         for col, ddl in (("subtotal", "INTEGER NOT NULL DEFAULT 0"), ("discount_amount", "INTEGER NOT NULL DEFAULT 0"),
                          ("discount_reason", "TEXT NOT NULL DEFAULT ''"), ("service_amount", "INTEGER NOT NULL DEFAULT 0"),
@@ -1383,6 +1389,7 @@ def r_sale_add(req):
     if request_id and not re.fullmatch(r"[A-Za-z0-9._:-]{6,64}", request_id):
         raise ApiError(400, "Kunci permintaan transaksi tidak valid.")
     order_ids = d.get("order_ids")
+    customer_name = str(d.get("customer_name", "")).strip()[:40]
     lines = None if order_ids else normalize_lines(d.get("items"))
 
     with db(write=True) as c:
@@ -1399,6 +1406,7 @@ def r_sale_add(req):
             orders, prepared, need, products = lines_from_orders(c, order_ids)
             table_no = orders[0]["table_label"]
             order_type = "dine_in"
+            customer_name = customer_name or next((o["customer_name"] for o in orders if o["customer_name"]), "")
         else:
             prepared, need, products = price_lines(c, lines)
         subtotal = sum(unit * qty for _, qty, unit, _, _ in prepared)
@@ -1418,11 +1426,11 @@ def r_sale_add(req):
             sale_id = f"KS{today[2:4]}{today[5:7]}{today[8:10]}-{seq:03d}"
         c.execute("""INSERT INTO sales(id,created_at,total_amount,payment_method,status,note,business_date,request_id,
                        subtotal,discount_amount,discount_reason,service_amount,tax_amount,rounding_amount,
-                       amount_paid,change_amount,order_type,table_no,user_id,shift_id,order_ids)
-                     VALUES(?,?,?,?,'paid',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       amount_paid,change_amount,order_type,table_no,user_id,shift_id,order_ids,customer_name)
+                     VALUES(?,?,?,?,'paid',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                   (sale_id, stamp, total, method, note, today, request_id or None, subtotal, discount, reason,
                    service, tax, rounding, paid, paid - total, order_type, table_no, user["id"], shift["id"],
-                   ",".join(o["id"] for o in orders)))
+                   ",".join(o["id"] for o in orders), customer_name))
         for p, qty, unit, summary, var_lines in prepared:
             cur = c.execute("""INSERT INTO sale_items(sale_id,product_id,name_snapshot,variant_snapshot,unit_price,
                                  quantity,line_total,modifiers_summary,cost_snapshot) VALUES(?,?,?,?,?,?,?,?,?)""",
@@ -1461,7 +1469,7 @@ def r_sales(req):
         sql += " AND s.business_date=?"; args.append(day)
     if not owner:
         sql += " AND s.user_id=?"; args.append(req.user["id"])
-    sql += " ORDER BY s.created_at DESC LIMIT ?"; args.append(limit)
+    sql += " ORDER BY s.created_at DESC, s.id DESC LIMIT ?"; args.append(limit)
     with db() as c:
         sales = rows(c, sql, args)
         if sales:
@@ -1579,37 +1587,79 @@ def range_args(req):
     return start.isoformat(), end.isoformat()
 
 
+def period_stats(c, start, end):
+    """Angka inti satu periode (tanggal usaha, tanpa transaksi batal)."""
+    t = c.execute("""SELECT COUNT(*) n, COALESCE(SUM(subtotal-discount_amount),0) net, COALESCE(SUM(total_amount),0) total,
+                     COALESCE(SUM(discount_amount),0) discount FROM sales WHERE business_date BETWEEN ? AND ? AND status!='void'""", (start, end)).fetchone()
+    i = c.execute("""SELECT COALESCE(SUM(si.quantity),0) items, COALESCE(SUM(si.line_total),0) rev,
+                     COALESCE(SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.line_total END),0) rev_cost,
+                     COALESCE(SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.cost_snapshot*si.quantity END),0) cost
+                     FROM sale_items si JOIN sales s ON s.id=si.sale_id
+                     WHERE s.business_date BETWEEN ? AND ? AND s.status!='void'""", (start, end)).fetchone()
+    return {"from": start, "to": end, "n": t["n"], "net": t["net"], "total": t["total"], "discount": t["discount"],
+            "items": i["items"], "avg": round(t["total"] / t["n"]) if t["n"] else 0,
+            "gross_profit": i["rev_cost"] - i["cost"], "coverage": round(i["rev_cost"] * 100 / i["rev"]) if i["rev"] else None}
+
+
 @route("GET", r"/api/reports/summary", "owner")
 def r_summary(req):
-    today = business_date()
-    week = (datetime.now(TZ).date() - timedelta(days=6)).isoformat()
+    d0 = datetime.now(TZ).date()
+    today, yday = d0.isoformat(), (d0 - timedelta(days=1)).isoformat()
+    week = (d0 - timedelta(days=6)).isoformat()
+    m0 = d0.replace(day=1)
+    prev_last = m0 - timedelta(days=1)
+    prev_first = prev_last.replace(day=1)
+    prev_same = prev_first.replace(day=min(d0.day, prev_last.day))
     with db() as c:
-        day = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total_amount),0) total FROM sales WHERE business_date=? AND status!='void'", (today,)).fetchone()
-        daily = {r["d"]: r for r in c.execute("SELECT business_date d, COUNT(*) n, SUM(total_amount) total FROM sales WHERE business_date>=? AND status!='void' GROUP BY business_date", (week,))}
+        st_today, st_yday = period_stats(c, today, today), period_stats(c, yday, yday)
+        st_week, st_mtd = period_stats(c, week, today), period_stats(c, m0.isoformat(), today)
+        st_prev = period_stats(c, prev_first.isoformat(), prev_same.isoformat())
+        daily = {r["d"]: r for r in c.execute("SELECT business_date d, COUNT(*) n, SUM(total_amount) total FROM sales WHERE business_date>=? AND status!='void' GROUP BY business_date", ((d0 - timedelta(days=29)).isoformat(),))}
         series = []
-        for i in range(7):
-            d = (datetime.now(TZ).date() - timedelta(days=6 - i)).isoformat()
+        for i in range(30):
+            d = (d0 - timedelta(days=29 - i)).isoformat()
             series.append({"date": d, "n": daily[d]["n"] if d in daily else 0, "total": daily[d]["total"] if d in daily else 0})
+        hours = rows(c, "SELECT substr(created_at,12,2) hour, COUNT(*) n, SUM(total_amount) total FROM sales WHERE business_date=? AND status!='void' GROUP BY hour ORDER BY hour", (today,))
+        methods = rows(c, "SELECT payment_method method, COUNT(*) n, SUM(total_amount) total FROM sales WHERE business_date=? AND status!='void' GROUP BY payment_method ORDER BY total DESC", (today,))
+        types = rows(c, "SELECT order_type, COUNT(*) n, SUM(total_amount) total FROM sales WHERE business_date=? AND status!='void' GROUP BY order_type", (today,))
+        cats = rows(c, """SELECT COALESCE(p.category,'Lainnya') category, SUM(si.quantity) qty, SUM(si.line_total) revenue FROM sale_items si
+                          JOIN sales s ON s.id=si.sale_id LEFT JOIN products p ON p.id=si.product_id
+                          WHERE s.business_date BETWEEN ? AND ? AND s.status!='void' GROUP BY category ORDER BY revenue DESC""", (m0.isoformat(), today))
+        top_q = """SELECT si.name_snapshot name, SUM(si.quantity) qty, SUM(si.line_total) revenue FROM sale_items si
+                   JOIN sales s ON s.id=si.sale_id WHERE s.business_date BETWEEN ? AND ? AND s.status!='void'
+                   GROUP BY si.product_id ORDER BY qty DESC LIMIT 5"""
+        top_today, top_week = rows(c, top_q, (today, today)), rows(c, top_q, (week, today))
+        void = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total_amount),0) total FROM sales WHERE business_date=? AND status='void'", (today,)).fetchone()
+        qr = c.execute("SELECT COUNT(*) FROM sales WHERE business_date=? AND status!='void' AND order_ids!=''", (today,)).fetchone()[0]
+        open_orders = c.execute("SELECT COUNT(*) n, COALESCE(SUM(subtotal),0) total FROM orders WHERE status IN ('accepted','ready','served')").fetchone()
+        pending_orders = c.execute("SELECT COUNT(*) FROM orders WHERE status='pending'").fetchone()[0]
+        cust = c.execute("""SELECT COUNT(*) active, SUM(first_d>=?) fresh FROM (
+                              SELECT lower(customer_name) k, MIN(business_date) first_d FROM sales WHERE customer_name!='' AND status!='void'
+                              GROUP BY k HAVING MAX(business_date)>=?)""", (m0.isoformat(), m0.isoformat())).fetchone()
+        registered = c.execute("SELECT COUNT(DISTINCT lower(customer_name)) FROM sales WHERE customer_name!='' AND status!='void'").fetchone()[0]
         low = rows(c, """SELECT id,name,stock_on_hand,reorder_level FROM products WHERE active=1 AND stock_tracked=1
                          AND stock_on_hand IS NOT NULL AND reorder_level IS NOT NULL AND stock_on_hand<=reorder_level
                          ORDER BY stock_on_hand LIMIT 20""")
-        top = rows(c, """SELECT si.name_snapshot name, SUM(si.quantity) qty, SUM(si.line_total) revenue FROM sale_items si
-                         JOIN sales s ON s.id=si.sale_id WHERE s.business_date=? AND s.status!='void'
-                         GROUP BY si.product_id ORDER BY qty DESC LIMIT 5""", (today,))
         stats = c.execute("""SELECT SUM(active=1) menus, SUM(active=1 AND stock_tracked=0) untracked,
                              SUM(active=1 AND stock_tracked=1) tracked, SUM(active=1 AND cost IS NULL) no_cost,
                              SUM(active=1 AND price IS NULL) no_price, SUM(active=1 AND available=0) sold_out
                              FROM products""").fetchone()
         open_shifts = [shift_report(c, r) for r in c.execute("SELECT * FROM shifts WHERE closed_at IS NULL").fetchall()]
-    with db() as c2:
-        setup = {"users": c2.execute("SELECT COUNT(*) FROM users WHERE active=1").fetchone()[0],
-                 "tables": c2.execute("SELECT COUNT(*) FROM dining_tables WHERE active=1").fetchone()[0],
-                 "no_photo": c2.execute("SELECT COUNT(*) FROM products WHERE active=1 AND image_key='none'").fetchone()[0],
-                 "qris": bool(get_settings(c2)["qris_image"]),
-                 "named": c2.execute("SELECT 1 FROM settings WHERE key='outlet_name'").fetchone() is not None,
+        setup = {"users": c.execute("SELECT COUNT(*) FROM users WHERE active=1").fetchone()[0],
+                 "tables": c.execute("SELECT COUNT(*) FROM dining_tables WHERE active=1").fetchone()[0],
+                 "no_photo": c.execute("SELECT COUNT(*) FROM products WHERE active=1 AND image_key='none'").fetchone()[0],
+                 "qris": bool(get_settings(c)["qris_image"]),
+                 "named": c.execute("SELECT 1 FROM settings WHERE key='outlet_name'").fetchone() is not None,
                  "backups": len(list_backups())}
-    return {"setup": setup, "today": today, "timezone": TZ_NAME, "today_transactions": day["n"], "today_total": day["total"],
-            "series": series, "low_stock": low, "top_today": top, "open_shifts": open_shifts,
+    return {"setup": setup, "today": today, "timezone": TZ_NAME,
+            "today_transactions": st_today["n"], "today_total": st_today["total"],
+            "stats": {"today": st_today, "yesterday": st_yday, "week": st_week, "mtd": st_mtd, "prev_mtd": st_prev},
+            "series": series[-7:], "series30": series, "hours_today": hours, "methods_today": methods, "types_today": types,
+            "categories_month": cats, "top_today": top_today, "top_week": top_week,
+            "void_today": {"n": void["n"], "total": void["total"]}, "qr_sales_today": qr,
+            "open_orders": {"n": open_orders["n"], "total": open_orders["total"]}, "pending_orders": pending_orders,
+            "customers": {"active_month": cust["active"] or 0, "new_month": cust["fresh"] or 0, "known": registered},
+            "low_stock": low, "open_shifts": open_shifts,
             "menus": stats["menus"] or 0, "untracked": stats["untracked"] or 0, "tracked": stats["tracked"] or 0,
             "no_cost": stats["no_cost"] or 0, "no_price": stats["no_price"] or 0, "sold_out": stats["sold_out"] or 0}
 
@@ -1655,7 +1705,21 @@ def r_export(req):
     out = io.StringIO()
     w = csv.writer(out)
     with db() as c:
-        if kind == "items":
+        if kind == "products":
+            w.writerow(["Menu", "Kategori", "Terjual", "Penjualan", "Jumlah nota", "HPP total (yang terisi)"])
+            for r in c.execute("""SELECT MAX(si.name_snapshot), COALESCE(MAX(p.category),'Lainnya'), SUM(si.quantity), SUM(si.line_total), COUNT(DISTINCT s.id),
+                                  SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.cost_snapshot*si.quantity END)
+                                  FROM sale_items si JOIN sales s ON s.id=si.sale_id LEFT JOIN products p ON p.id=si.product_id
+                                  WHERE s.business_date BETWEEN ? AND ? AND s.status!='void' GROUP BY si.product_id ORDER BY 3 DESC""", (start, end)):
+                w.writerow([csv_safe(x) for x in r])
+        elif kind == "customers":
+            w.writerow(["Pelanggan", "Jumlah transaksi", "Total belanja", "Terakhir", "HP"])
+            for r in c.execute("""SELECT MAX(s.customer_name), COUNT(*), SUM(s.total_amount), MAX(s.created_at), COALESCE(MAX(cu.phone),'')
+                                  FROM sales s LEFT JOIN customers cu ON cu.name=s.customer_name COLLATE NOCASE
+                                  WHERE s.customer_name!='' AND s.status!='void' AND s.business_date BETWEEN ? AND ?
+                                  GROUP BY lower(s.customer_name) ORDER BY 3 DESC""", (start, end)):
+                w.writerow([csv_safe(x) for x in r])
+        elif kind == "items":
             w.writerow(["No. Nota", "Tanggal", "Menu", "Varian", "Jumlah", "Harga satuan", "Total baris", "HPP satuan", "Status"])
             for r in c.execute("""SELECT s.id,s.business_date,si.name_snapshot,si.modifiers_summary,si.quantity,si.unit_price,
                                   si.line_total,si.cost_snapshot,s.status FROM sale_items si JOIN sales s ON s.id=si.sale_id
@@ -1672,6 +1736,128 @@ def r_export(req):
     name = f"kopi-sawah-{kind}-{start}_{end}.csv"
     return Resp(200, body=("﻿" + out.getvalue()).encode("utf-8"), content_type="text/csv; charset=utf-8",
                 headers=[("Content-Disposition", f'attachment; filename="{name}"')])
+
+
+@route("GET", r"/api/reports/transactions", "owner")
+def r_report_transactions(req):
+    start, end = range_args(req)
+    with db() as c:
+        items = rows(c, """SELECT s.id, s.created_at, s.business_date, s.status, s.payment_method, s.order_type, s.table_no,
+                           s.customer_name, s.subtotal, s.discount_amount, s.service_amount, s.tax_amount, s.total_amount,
+                           u.name AS cashier FROM sales s LEFT JOIN users u ON u.id=s.user_id
+                           WHERE s.business_date BETWEEN ? AND ? ORDER BY s.created_at DESC, s.id DESC LIMIT 1000""", (start, end))
+        total = c.execute("SELECT COUNT(*) FROM sales WHERE business_date BETWEEN ? AND ?", (start, end)).fetchone()[0]
+        unpaid = c.execute("SELECT COUNT(*) n, COALESCE(SUM(subtotal),0) total FROM orders WHERE status IN ('accepted','ready','served')").fetchone()
+    return {"from": start, "to": end, "items": items, "truncated": total > len(items), "unpaid_orders": {"n": unpaid["n"], "total": unpaid["total"]}}
+
+
+@route("GET", r"/api/reports/products", "owner")
+def r_report_products(req):
+    start, end = range_args(req)
+    order = "revenue" if req.arg("sort") == "revenue" else "qty"
+    with db() as c:
+        items = rows(c, f"""SELECT si.product_id id, MAX(si.name_snapshot) name, COALESCE(MAX(p.category),'Lainnya') category,
+                           SUM(si.quantity) qty, SUM(si.line_total) revenue, COUNT(DISTINCT s.id) nota,
+                           SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.line_total END) revenue_with_cost,
+                           SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.cost_snapshot*si.quantity END) cost
+                           FROM sale_items si JOIN sales s ON s.id=si.sale_id LEFT JOIN products p ON p.id=si.product_id
+                           WHERE s.business_date BETWEEN ? AND ? AND s.status!='void'
+                           GROUP BY si.product_id ORDER BY {order} DESC, name LIMIT 500""", (start, end))
+    return {"from": start, "to": end, "items": items, "total_qty": sum(i["qty"] for i in items), "total_revenue": sum(i["revenue"] for i in items)}
+
+
+@route("GET", r"/api/reports/monthly", "owner")
+def r_report_monthly(req):
+    d0 = datetime.now(TZ).date()
+    n = min(max(int(req.arg("months", "12")) if req.arg("months", "12").isdigit() else 12, 1), 36)
+    y, m = d0.year, d0.month
+    months = []
+    for _ in range(n):
+        months.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    months.reverse()
+    start = months[0] + "-01"
+    with db() as c:
+        base = {r["m"]: r for r in c.execute("""SELECT substr(business_date,1,7) m, COUNT(*) n, SUM(subtotal-discount_amount) net, SUM(total_amount) total,
+                                                SUM(discount_amount) discount FROM sales WHERE business_date>=? AND status!='void' GROUP BY m""", (start,))}
+        gp = {r["m"]: r for r in c.execute("""SELECT substr(s.business_date,1,7) m, SUM(si.line_total) rev,
+                                              SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.line_total END) rev_cost,
+                                              SUM(CASE WHEN si.cost_snapshot IS NOT NULL THEN si.cost_snapshot*si.quantity END) cost,
+                                              SUM(si.quantity) items
+                                              FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.business_date>=? AND s.status!='void' GROUP BY m""", (start,))}
+    out = []
+    for mo in months:
+        b, g = base.get(mo), gp.get(mo)
+        out.append({"month": mo, "n": b["n"] if b else 0, "net": (b["net"] or 0) if b else 0, "total": (b["total"] or 0) if b else 0,
+                    "discount": (b["discount"] or 0) if b else 0, "items": (g["items"] or 0) if g else 0,
+                    "gross_profit": ((g["rev_cost"] or 0) - (g["cost"] or 0)) if g else 0,
+                    "coverage": round((g["rev_cost"] or 0) * 100 / g["rev"]) if g and g["rev"] else None})
+    return {"items": out}
+
+
+@route("GET", r"/api/reports/customers", "owner")
+def r_report_customers(req):
+    start, end = range_args(req)
+    with db() as c:
+        items = rows(c, """SELECT MAX(s.customer_name) name, COUNT(*) n, SUM(s.total_amount) total, MAX(s.created_at) last_at,
+                           MIN(s.created_at) first_at, COALESCE(MAX(cu.phone),'') phone, COALESCE(MAX(cu.note),'') note
+                           FROM sales s LEFT JOIN customers cu ON cu.name=s.customer_name COLLATE NOCASE
+                           WHERE s.customer_name!='' AND s.status!='void' AND s.business_date BETWEEN ? AND ?
+                           GROUP BY lower(s.customer_name) ORDER BY total DESC""", (start, end))
+        for i in items:
+            i["avg"] = round(i["total"] / i["n"]) if i["n"] else 0
+        seen = {i["name"].lower() for i in items}
+        idle = [r for r in rows(c, "SELECT name, phone, note FROM customers ORDER BY name") if r["name"].lower() not in seen]
+        anon = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total_amount),0) total FROM sales WHERE customer_name='' AND status!='void' AND business_date BETWEEN ? AND ?", (start, end)).fetchone()
+    return {"from": start, "to": end, "items": items, "idle": idle, "anonymous": {"n": anon["n"], "total": anon["total"]}}
+
+
+@route("GET", r"/api/reports/customer", "owner")
+def r_report_customer(req):
+    start, end = range_args(req)
+    name = req.arg("name")
+    if not name:
+        raise ApiError(400, "Nama pelanggan wajib diisi.")
+    with db() as c:
+        items = rows(c, """SELECT s.id, s.created_at, s.status, s.payment_method, s.table_no, s.total_amount FROM sales s
+                           WHERE s.customer_name=? COLLATE NOCASE AND s.business_date BETWEEN ? AND ? ORDER BY s.created_at DESC, s.id DESC LIMIT 500""", (name, start, end))
+        for it in items:
+            it["items"] = rows(c, "SELECT name_snapshot, quantity FROM sale_items WHERE sale_id=? ORDER BY id", (it["id"],))
+    return {"name": name, "items": items}
+
+
+@route("GET", r"/api/customers/names")
+def r_customer_names(req):
+    with db() as c:
+        names = [r[0] for r in c.execute("""SELECT name FROM (SELECT customer_name name, MAX(created_at) at FROM sales WHERE customer_name!='' GROUP BY lower(customer_name)
+                                            UNION SELECT name, created_at FROM customers) ORDER BY at DESC LIMIT 300""")]
+    return {"items": list(dict.fromkeys(names))}
+
+
+@route("PUT", r"/api/customers", "owner")
+def r_customer_put(req):
+    """Simpan data pelanggan (HP/catatan). `rename_to` menggabungkan/mengganti nama di seluruh riwayat."""
+    d = req.data
+    name = str(d.get("name", "")).strip()[:40]
+    if not name:
+        raise ApiError(400, "Nama pelanggan wajib diisi.")
+    phone = re.sub(r"[^\d+ -]", "", str(d.get("phone", "")))[:20].strip()
+    note = str(d.get("note", "")).strip()[:160]
+    new = str(d.get("rename_to", "") or "").strip()[:40]
+    with db(write=True) as c:
+        if new and new.lower() != name.lower():
+            c.execute("UPDATE sales SET customer_name=? WHERE customer_name=? COLLATE NOCASE", (new, name))
+            c.execute("UPDATE orders SET customer_name=? WHERE customer_name=? COLLATE NOCASE", (new, name))
+            c.execute("DELETE FROM customers WHERE name=? COLLATE NOCASE AND NOT EXISTS (SELECT 1 FROM customers WHERE name=? COLLATE NOCASE)", (name, new))
+            c.execute("UPDATE customers SET name=? WHERE name=? COLLATE NOCASE", (new, name))
+            audit(c, req.user, "ganti_nama_pelanggan", f"{name} → {new}")
+            name = new
+        c.execute("""INSERT INTO customers(name,phone,note,created_at) VALUES(?,?,?,?)
+                     ON CONFLICT(name) DO UPDATE SET phone=excluded.phone, note=excluded.note""", (name, phone, note, now()))
+        audit(c, req.user, "simpan_pelanggan", name)
+    return {"ok": True, "name": name}
 
 
 @route("GET", r"/api/audit", "owner")

@@ -28,6 +28,7 @@ const ICON = {
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
   cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/>',
+  doc: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
   table: '<path d="M4 9h16M6 9v10M18 9v10M3 9l1.5-4h15L21 9"/>',
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
@@ -384,6 +385,19 @@ function pinScreen(id, name) {
   draw();
 }
 
+/* ============================== helper statistik ============================== */
+const pctDelta = (cur, prev) => prev ? Math.round((cur - prev) * 100 / prev) : null;
+const deltaHTML = (cur, prev, label) => { const d = pctDelta(cur, prev); return d === null ? `<span class="muted">${cur ? 'baru, belum ada pembanding' : 'belum ada data'}</span>` : `<span class="delta ${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d)}%</span> <span class="muted">${label}</span>`; };
+const stat = (label, val, sub = '') => `<div class="card stat"><div class="label">${label}</div><div class="val">${val}</div><div class="sub">${sub}</div></div>`;
+function colChart(series, val, lab, hiLast = true) {
+  const max = Math.max(1, ...series.map(val)), step = series.length > 14 ? 5 : 1;
+  return `<div class="cols">${series.map((x, i) => `<div class="col ${hiLast && i === series.length - 1 ? 'today' : ''}" title="${esc(lab(x, true))}: ${rp(val(x))}"><div class="b" style="height:${Math.round(val(x) / max * 100)}%"></div><span>${(i % step === 0 || i === series.length - 1) ? esc(lab(x, false)) : '&nbsp;'}</span></div>`).join('')}</div>`;
+}
+const dayShort = d => new Date(d + 'T00:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const monthName = m => new Date(m + '-01T00:00:00Z').toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const monthShort = m => new Date(m + '-01T00:00:00Z').toLocaleDateString('id-ID', { month: 'short', timeZone: 'UTC' });
+const emptyNote = t => `<div class="empty">${t}</div>`;
+
 /* ============================== BANTUAN ============================== */
 const HELP_HTML = `<div class="stack">
 <details open><summary><b>Jualan di kasir</b></summary><ol><li>Tab <b>Kas</b> → isi uang awal laci → <b>Buka kasir</b> (sekali tiap shift).</li><li>Tab <b>Kasir</b> → ketuk menu → pilih ukuran/gula dsb. → <b>Tambah</b>.</li><li>Ketuk <b>Bayar</b> → pilih cara bayar. Untuk tunai isi uang diterima; kembalian muncul otomatis.</li><li>Akhir shift: tab <b>Kas</b> → hitung uang di laci → <b>Tutup kasir</b>.</li></ol></details>
@@ -413,17 +427,47 @@ async function viewHome() {
     [su.qris, 'Unggah gambar QRIS toko (opsional)', 'Pelanggan bisa bayar QRIS dari meja.', ['kelola', 'Unggah QRIS', 'atur']],
     [su.backups > 0, 'Pastikan cadangan otomatis berjalan', 'Cek di Pengaturan setelah jam 03:00.', ['kelola', 'Lihat cadangan', 'atur']],
   ], done = steps.filter(x => x[0]).length;
-  const guide = done < steps.length ? `<div class="card" style="margin-top:14px"><div class="row between wrap"><h3 style="margin:0">Panduan mulai <span class="pill gold">${done}/${steps.length}</span></h3><button class="btn ghost sm" data-act="help">Buka bantuan</button></div><div class="list" style="margin-top:6px">${steps.map(([d, t, sub, a]) => `<div class="item"><span class="pill ${d ? 'ok' : ''}" style="min-width:30px;text-align:center">${d ? '✓' : '•'}</span><div class="grow"><div class="t" ${d ? 'style="text-decoration:line-through;opacity:.6"' : ''}>${esc(t)}</div><div class="s">${esc(sub)}</div></div>${d ? '' : `<button class="btn ghost sm" data-act="go" data-view="${a[0]}" data-sub="${a[2]}">${a[1]}</button>`}</div>`).join('')}</div></div>` : '';
-  $('#main').innerHTML = head(`Halo, ${esc(state.me.name)}`, fmtDate(s.today), `<button class="btn gold" data-act="go" data-view="kasir">${icon('cart')} Buka Kasir</button>`)
+  const guide = done < steps.length ? `<div class="card"><div class="row between wrap"><h3 style="margin:0">Panduan mulai <span class="pill gold">${done}/${steps.length}</span></h3><button class="btn ghost sm" data-act="help">Buka bantuan</button></div><div class="list" style="margin-top:6px">${steps.map(([d, t, sub, a]) => `<div class="item"><span class="pill ${d ? 'ok' : ''}" style="min-width:30px;text-align:center">${d ? '✓' : '•'}</span><div class="grow"><div class="t" ${d ? 'style="text-decoration:line-through;opacity:.6"' : ''}>${esc(t)}</div><div class="s">${esc(sub)}</div></div>${d ? '' : `<button class="btn ghost sm" data-act="go" data-view="${a[0]}" data-sub="${a[2]}">${a[1]}</button>`}</div>`).join('')}</div></div>` : '';
+  const st = s.stats, t = st.today, days = state.homeDays || 30;
+  const series = days === 7 ? s.series30.slice(-7) : s.series30;
+  const attention = `<div class="card"><h3>Perlu perhatian</h3>${alerts.length ? `<div class="list">${alerts.map(([k, t, d, a]) => `<div class="item"><span class="pill ${k}">${k === 'ok' ? 'Info' : k === 'bad' ? 'Penting' : k === 'warn' ? 'Cek' : 'Saran'}</span><div class="grow"><div class="t">${t}</div><div class="s">${d}</div></div>${a ? `<button class="btn ghost sm" data-act="go" data-view="${a[0]}" ${a[2] ? `data-sub="${a[2]}"` : ''}>${a[1]}</button>` : ''}</div>`).join('')}</div>` : '<div class="empty">Semua beres 👍</div>'}</div>`;
+  const topList = l => l.length ? `<div class="list">${l.map((x, i) => `<div class="item"><span class="rank">${i + 1}</span><div class="t grow">${esc(x.name)}</div><span class="pill">${x.qty}×</span><b>${rp(x.revenue)}</b></div>`).join('')}</div>` : emptyNote('Belum ada penjualan.');
+  const profit = x => x.coverage ? rp(x.gross_profit) : '—';
+  const covNote = x => x.coverage == null ? 'belum ada penjualan' : x.coverage === 0 ? 'isi HPP menu agar terhitung' : `dari ${x.coverage}% penjualan ber-HPP`;
+  const ops = [
+    ['Kasir', state.shift ? `<span class="pill ok">Terbuka</span>` : '<span class="pill warn">Belum dibuka</span>', s.open_shifts.length ? `${s.open_shifts.length} shift berjalan` : 'buka di tab Kas'],
+    ['Pesanan QR menunggu', `<b>${s.pending_orders}</b>`, s.pending_orders ? 'segera diterima kasir' : 'tidak ada antrean'],
+    ['Tagihan meja belum dibayar', `<b>${rp(s.open_orders.total)}</b>`, `${s.open_orders.n} pesanan sudah diterima`],
+    ['Penjualan lewat QR meja', `<b>${s.qr_sales_today}</b>`, 'nota hari ini'],
+    ['Transaksi dibatalkan', `<b>${s.void_today.n}</b>`, s.void_today.n ? rp(s.void_today.total) + ' tidak dihitung' : 'hari ini'],
+    ['Diskon diberikan', `<b>${rp(t.discount)}</b>`, 'hari ini'],
+    ['Pelanggan bulan ini', `<b>${s.customers.active_month}</b>`, `${s.customers.new_month} baru · ${s.customers.known} dikenal`],
+    ['Menu habis / stok menipis', `<b>${s.sold_out}</b> / <b>${s.low_stock.length}</b>`, 'perlu dicek'],
+  ];
+  $('#main').innerHTML = head(`Halo, ${esc(state.me.name)}`, fmtDate(s.today), `<button class="btn ghost" data-act="go" data-view="laporan">${icon('chart')} Semua laporan</button><button class="btn gold" data-act="go" data-view="kasir">${icon('cart')} Buka Kasir</button>`)
     + `<div class="grid stats">
-      <div class="card stat"><div class="label">Penjualan hari ini</div><div class="val">${rp(s.today_total)}</div><div class="sub">${s.today_transactions} transaksi${s.today_transactions ? ' · rata-rata ' + rp(Math.round(s.today_total / s.today_transactions)) : ''}</div></div>
-      <div class="card stat"><div class="label">Menu aktif</div><div class="val">${s.menus}</div><div class="sub">${s.tracked} dengan stok terlacak</div></div>
+      ${stat('Penjualan hari ini', rp(t.total), `${t.n} transaksi · rata-rata ${rp(t.avg)}<br>${deltaHTML(t.total, st.yesterday.total, 'dari kemarin')}`)}
+      ${stat('Laba kotor hari ini', profit(t), covNote(t))}
+      ${stat('Item terjual hari ini', nf.format(t.items), `kemarin ${nf.format(st.yesterday.items)} item`)}
+      ${stat('Penjualan bulan ini', rp(st.mtd.total), `${st.mtd.n} transaksi<br>${deltaHTML(st.mtd.total, st.prev_mtd.total, 'dari bulan lalu (periode sama)')}`)}
+      ${stat('Laba kotor bulan ini', profit(st.mtd), covNote(st.mtd))}
+      ${stat('7 hari terakhir', rp(st.week.total), `rata-rata ${rp(Math.round(st.week.total / 7))} per hari<br>${st.week.n} transaksi`)}
     </div>
     <div class="grid g2" style="margin-top:14px">
-      <div class="card"><h3>7 hari terakhir</h3><div class="cols">${s.series.map((x, i) => `<div class="col ${i === 6 ? 'today' : ''}" title="${esc(fmtDate(x.date))}: ${rp(x.total)}"><div class="b" style="height:${Math.round(x.total / max * 100)}%"></div><span>${new Date(x.date + 'T00:00:00Z').toLocaleDateString('id-ID', { weekday: 'short', timeZone: 'UTC' })}</span></div>`).join('')}</div></div>
-      <div class="card"><h3>Terlaris hari ini</h3>${s.top_today.length ? `<div class="list">${s.top_today.map(t => `<div class="item"><div class="t grow">${esc(t.name)}</div><span class="pill">${t.qty}×</span><b>${rp(t.revenue)}</b></div>`).join('')}</div>` : '<div class="empty">Belum ada penjualan hari ini.</div>'}</div>
+      <div class="card"><div class="row between wrap" style="margin-bottom:6px"><h3 style="margin:0">Penjualan ${days} hari terakhir</h3><div class="seg" style="min-width:150px"><button data-act="homeDays" data-d="7" class="${days === 7 ? 'on' : ''}">7 hari</button><button data-act="homeDays" data-d="30" class="${days === 30 ? 'on' : ''}">30 hari</button></div></div>${colChart(series, x => x.total, (x, full) => full ? fmtDate(x.date) : dayShort(x.date))}<div class="small muted">Total ${days} hari: <b>${rp(series.reduce((a, x) => a + x.total, 0))}</b> · ${series.reduce((a, x) => a + x.n, 0)} transaksi</div></div>
+      <div class="card"><h3>Jam ramai hari ini</h3>${s.hours_today.length ? barRows(s.hours_today, h => `${h.hour}:00 <span class="muted">(${h.n})</span>`, h => h.total, 'gold') : emptyNote('Belum ada penjualan hari ini.')}</div>
     </div>
-    ${guide}<div class="card" style="margin-top:14px"><h3>Perlu perhatian</h3>${alerts.length ? `<div class="list">${alerts.map(([k, t, d, a]) => `<div class="item"><span class="pill ${k}">${k === 'ok' ? 'Info' : k === 'bad' ? 'Penting' : k === 'warn' ? 'Cek' : 'Saran'}</span><div class="grow"><div class="t">${t}</div><div class="s">${d}</div></div>${a ? `<button class="btn ghost sm" data-act="go" data-view="${a[0]}" ${a[2] ? `data-sub="${a[2]}"` : ''}>${a[1]}</button>` : ''}</div>`).join('')}</div>` : '<div class="empty">Semua beres 👍</div>'}</div>`;
+    <div class="grid g3" style="margin-top:14px">
+      <div class="card"><h3>Cara bayar hari ini</h3>${s.methods_today.length ? barRows(s.methods_today, m => `${esc(METHOD_NAME(m.method))} <span class="muted">(${m.n})</span>`, m => m.total) : emptyNote('Belum ada data.')}</div>
+      <div class="card"><h3>Jenis pesanan hari ini</h3>${s.types_today.length ? barRows(s.types_today, x => esc(state.orderTypes[x.order_type] || x.order_type), x => x.total, 'gold') : emptyNote('Belum ada data.')}</div>
+      <div class="card"><h3>Kategori terlaris bulan ini</h3>${s.categories_month.length ? barRows(s.categories_month.slice(0, 6), x => `${esc(x.category)} <span class="muted">(${x.qty})</span>`, x => x.revenue) : emptyNote('Belum ada data.')}</div>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Menu terlaris hari ini</h3>${topList(s.top_today)}</div>
+      <div class="card"><h3>Menu terlaris 7 hari</h3>${topList(s.top_week)}</div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Operasional saat ini</h3><div class="grid opsgrid">${ops.map(([l, v, sub]) => `<div class="ops"><div class="small muted">${l}</div><div class="opsv">${v}</div><div class="small muted">${sub}</div></div>`).join('')}</div></div>
+    <div class="grid g2" style="margin-top:14px">${attention}${guide || ''}</div>`;
 }
 
 /* ============================== KASIR ============================== */
@@ -511,14 +555,15 @@ function checkoutSheet(src) {
   state.cartSheet?.close();
   const st = state.settings; let sub = orderMode ? src.sub : cartSubtotal(); let selOrders = orderMode ? [...src.orders] : [];
   const canDisc = isOwner() || parseFloat(st.kasir_max_discount_percent) > 0;
-  const co = { type: 'dine_in', table: '', note: '', discOn: false, dtype: 'percent', dval: '', dreason: '', method: '', paid: null, reqId: (crypto.randomUUID ? crypto.randomUUID() : 'ks-' + Date.now() + '-' + Math.random().toString(16).slice(2)), busy: false };
+  const co = { type: 'dine_in', table: '', note: '', cust: '', discOn: false, dtype: 'percent', dval: '', dreason: '', method: '', paid: null, reqId: (crypto.randomUUID ? crypto.randomUUID() : 'ks-' + Date.now() + '-' + Math.random().toString(16).slice(2)), busy: false };
   const sh = openSheet({
     title: 'Pembayaran', wide: true,
     body: `<div id="coErr"></div>
     ${orderMode ? `<div class="form-row"><label class="lbl">${esc(src.label)} — pesanan yang dibayar sekarang</label><div id="coOrders">${src.orders.map(o => `<button type="button" class="opt multi on" data-oid="${esc(o.id)}"><span class="box"></span><span><b>${esc(o.id)}</b> · ${esc(o.items.map(i => `${i.quantity}× ${i.name_snapshot}`).join(', '))}</span><span class="pl">${rp(o.subtotal)}</span></button>`).join('')}</div><div class="hint">Hilangkan centang untuk membayar sebagian saja (split bill per pesanan).</div></div>` : ''}
     <div class="${orderMode ? 'hidden' : ''}"><div class="form-row"><label class="lbl">Jenis pesanan</label><div class="seg" id="coType">${Object.entries(state.orderTypes).map(([k, v]) => `<button type="button" data-v="${k}" class="${k === co.type ? 'on' : ''}">${esc(v)}</button>`).join('')}</div></div>
-    <div class="two"><div class="form-row"><label class="lbl" for="coTable">Nomor meja / nama (opsional)</label><input class="field" id="coTable" maxlength="20" autocomplete="off" placeholder="mis. Meja 5 / Bu Sari"></div>
-    <div class="form-row"><label class="lbl" for="coNote">Catatan (opsional)</label><input class="field" id="coNote" maxlength="240" autocomplete="off" placeholder="mis. jangan terlalu pedas"></div></div></div>
+    <div class="two"><div class="form-row"><label class="lbl" for="coTable">Nomor meja (opsional)</label><input class="field" id="coTable" maxlength="20" autocomplete="off" placeholder="mis. Meja 5"></div>
+    <div class="form-row"><label class="lbl" for="coCust">Nama pelanggan (opsional)</label><input class="field" id="coCust" maxlength="40" autocomplete="off" list="coCustList" placeholder="mis. Bu Sari"><datalist id="coCustList"></datalist></div></div>
+    <div class="form-row"><label class="lbl" for="coNote">Catatan (opsional)</label><input class="field" id="coNote" maxlength="240" autocomplete="off" placeholder="mis. jangan terlalu pedas"></div></div>
     ${canDisc ? `<div class="form-row"><button type="button" class="btn ghost sm" id="coDiscBtn">+ Tambah diskon</button><div id="coDisc" class="hidden" style="margin-top:10px"><div class="seg" id="coDType"><button type="button" data-v="percent" class="on">Persen (%)</button><button type="button" data-v="nominal">Rupiah (Rp)</button></div>
       <div class="two" style="margin-top:10px"><input class="field" id="coDVal" inputmode="decimal" placeholder="Nilai diskon" autocomplete="off"><input class="field" id="coDWhy" maxlength="120" placeholder="Alasan (wajib)" autocomplete="off"></div>${isOwner() ? '' : `<div class="hint">Batas diskon kasir: ${esc(st.kasir_max_discount_percent)}% dari subtotal.</div>`}</div></div>` : ''}
     <div class="card flat sumrows" id="coSum" style="margin-bottom:14px"></div>
@@ -560,7 +605,8 @@ function checkoutSheet(src) {
     sub = selOrders.reduce((a, o) => a + o.subtotal, 0); update();
   });
   $('#coType', sh.el).addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (!b) return; co.type = b.dataset.v; $$('#coType button', sh.el).forEach(x => x.classList.toggle('on', x === b)); });
-  $('#coTable', sh.el).oninput = e => co.table = e.target.value; $('#coNote', sh.el).oninput = e => co.note = e.target.value;
+  $('#coTable', sh.el).oninput = e => co.table = e.target.value; $('#coCust', sh.el).oninput = e => co.cust = e.target.value;
+  if (!orderMode) api('/api/customers/names').then(r => { const dl = $('#coCustList', sh.el); if (dl) dl.innerHTML = (r.items || []).map(n => `<option value="${esc(n)}">`).join(''); }).catch(() => {}); $('#coNote', sh.el).oninput = e => co.note = e.target.value;
   $('#coDiscBtn', sh.el)?.addEventListener('click', () => { co.discOn = !co.discOn; $('#coDisc', sh.el).classList.toggle('hidden', !co.discOn); $('#coDiscBtn', sh.el).textContent = co.discOn ? '− Hapus diskon' : '+ Tambah diskon'; update(); });
   $('#coDType', sh.el)?.addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (!b) return; co.dtype = b.dataset.v; $$('#coDType button', sh.el).forEach(x => x.classList.toggle('on', x === b)); $('#coDVal', sh.el).value = ''; co.dval = ''; update(); });
   $('#coDVal', sh.el)?.addEventListener('input', e => { co.dval = e.target.value; update(); });
@@ -573,7 +619,7 @@ function checkoutSheet(src) {
     const d = discAmount();
     const body = orderMode
       ? { order_ids: selOrders.map(o => o.id), payment_method: co.method, note: co.note, request_id: co.reqId }
-      : { items: state.cart.map(l => ({ product_id: l.pid, quantity: l.qty, modifiers: l.opts.map(o => ({ id: o.id })) })), payment_method: co.method, order_type: co.type, table_no: co.table, note: co.note, request_id: co.reqId };
+      : { items: state.cart.map(l => ({ product_id: l.pid, quantity: l.qty, modifiers: l.opts.map(o => ({ id: o.id })) })), payment_method: co.method, order_type: co.type, table_no: co.table, customer_name: co.cust.trim(), note: co.note, request_id: co.reqId };
     if (co.method === 'tunai') body.amount_paid = co.paid;
     if (d.amt) body.discount = { type: co.dtype, value: co.dtype === 'percent' ? parseFloat(co.dval.replace(',', '.')) : d.amt, reason: co.dreason.trim() };
     try {
@@ -588,7 +634,7 @@ function checkoutSheet(src) {
     } catch (e) {
       if (e.network && !orderMode) {          // internet putus: simpan di perangkat, kirim otomatis nanti
         const t = calcTotals(sub, d.amt || 0), paid = body.amount_paid ?? t.total;
-        const prov = { id: 'OFFLINE-' + body.request_id.slice(-4).toUpperCase(), created_at: new Date().toISOString(), cashier: state.me.name, order_type: body.order_type, table_no: body.table_no, status: 'paid', offline: true,
+        const prov = { id: 'OFFLINE-' + body.request_id.slice(-4).toUpperCase(), created_at: new Date().toISOString(), cashier: state.me.name, order_type: body.order_type, table_no: body.table_no, customer_name: body.customer_name, status: 'paid', offline: true,
           items: state.cart.map(l => { const unit = lineUnit(l); return { name_snapshot: prod(l.pid)?.name || '?', quantity: l.qty, unit_price: unit, line_total: unit * l.qty, modifiers_summary: optLabel(l.opts) }; }),
           subtotal: t.subtotal, discount_amount: t.disc, service_amount: t.svc, tax_amount: t.tax, rounding_amount: t.round, total_amount: t.total, payment_method: body.payment_method, amount_paid: paid, change_amount: paid - t.total };
         setQueue([...getQueue().filter(x => x.body.request_id !== body.request_id), { body, prov, at: Date.now() }]);
@@ -607,7 +653,7 @@ function receiptHTML(s) {
   const st = state.settings, line = (l, v, cls = '') => `<div class="l ${cls}"><span>${l}</span><span>${v}</span></div>`;
   return `<div class="receipt"><h4>${esc(st.outlet_name)}</h4><div class="c">${esc(st.outlet_address)}</div><hr>
     <div>No: ${esc(s.id)}</div><div>${esc(fmtDateTime(s.created_at))}</div><div>Kasir: ${esc(s.cashier || '-')}</div>
-    <div>${esc(state.orderTypes[s.order_type] || '')}${s.table_no ? ' · ' + esc(s.table_no) : ''}</div><hr>
+    <div>${esc(state.orderTypes[s.order_type] || '')}${s.table_no ? ' · ' + esc(s.table_no) : ''}</div>${s.customer_name ? `<div>Pelanggan: ${esc(s.customer_name)}</div>` : ''}<hr>
     ${s.items.map(i => `<div>${esc(i.name_snapshot)}</div>${i.modifiers_summary ? `<div style="padding-left:8px">${esc(i.modifiers_summary)}</div>` : ''}${line(`${i.quantity} × ${nf.format(i.unit_price)}`, nf.format(i.line_total))}`).join('')}<hr>
     ${line('Subtotal', nf.format(s.subtotal))}${s.discount_amount ? line('Diskon', '-' + nf.format(s.discount_amount)) : ''}${s.service_amount ? line('Layanan', nf.format(s.service_amount)) : ''}${s.tax_amount ? line('Pajak', nf.format(s.tax_amount)) : ''}${s.rounding_amount ? line('Pembulatan', nf.format(s.rounding_amount)) : ''}
     ${line('TOTAL', 'Rp' + nf.format(s.total_amount), 'b')}${line(esc(METHOD_NAME(s.payment_method)), nf.format(s.amount_paid))}${s.payment_method === 'tunai' ? line('Kembali', nf.format(s.change_amount)) : ''}
@@ -709,29 +755,114 @@ function repRange() {
   return [r.from || t, r.to || t];
 }
 const barRows = (items, label, val, cls = '') => { const max = Math.max(1, ...items.map(val)); return `<div class="bars">${items.map(i => `<div class="bar"><span>${label(i)}</span><div class="track"><div class="fill ${cls}" style="width:${Math.round(val(i) / max * 100)}%"></div></div><b>${rp(val(i))}</b></div>`).join('')}</div>`; };
+const REPORTS = [
+  ['sales', 'Transaksi Penjualan', 'Ringkasan transaksi, omzet, laba kotor, dan tagihan meja.'],
+  ['monthly', 'Omzet Per Bulan', 'Lihat perkembangan omzet dari bulan ke bulan.'],
+  ['top', 'Produk Terlaris', 'Lihat produk yang paling banyak terjual.'],
+  ['sold', 'Produk Terjual', 'Lihat jumlah dan nilai penjualan setiap produk.'],
+  ['cust', 'Transaksi Pelanggan', 'Lihat transaksi berdasarkan pelanggan.'],
+];
+const REPORT_VIEWS = {};
 async function viewLaporan() {
-  const [from, to] = repRange(), r = await api(`/api/reports/range?from=${from}&to=${to}`);
-  const presets = [['today', 'Hari ini'], ['yesterday', 'Kemarin'], ['7d', '7 hari'], ['month', 'Bulan ini'], ['custom', 'Pilih tanggal']];
+  const v = state.repView;
+  if (v && REPORT_VIEWS[v]) return REPORT_VIEWS[v]();
+  const [from, to] = repRange();
+  $('#main').innerHTML = head('Laporan', 'Pilih laporan yang ingin dilihat.')
+    + `<h3 class="sect">Penjualan</h3><div class="card rlist">${REPORTS.map(([k, t, d]) => `<button class="ritem" data-act="repOpen" data-r="${k}"><span class="ricon">${icon('doc')}</span><span class="grow"><b>${t}</b><span class="small muted" style="display:block">${d}</span></span><span class="chev" aria-hidden="true">›</span></button>`).join('')}</div>
+    <p class="hint" style="margin-top:14px">Semua laporan memakai tanggal usaha WIB dan tidak menghitung transaksi yang dibatalkan. Angka laba memakai HPP (modal) yang sudah Anda isi di Kelola → Menu & Harga.</p>`;
+}
+const repHead = (title, sub, right = '') => `<div class="page-head"><div><button class="btn ghost sm" data-act="repBack" style="margin-bottom:8px">‹ Semua laporan</button><h2>${title}</h2><p>${sub}</p></div><div class="row wrap">${right}</div></div>`;
+function repBar() {
+  const [from, to] = repRange(), presets = [['today', 'Hari ini'], ['yesterday', 'Kemarin'], ['7d', '7 hari'], ['month', 'Bulan ini'], ['custom', 'Pilih tanggal']];
+  return `<div class="chips" style="margin-bottom:14px">${presets.map(([k, l]) => `<button data-act="preset" data-p="${k}" class="${state.rep.preset === k ? 'on' : ''}">${l}</button>`).join('')}</div>`
+    + (state.rep.preset === 'custom' ? `<div class="card flat row wrap" style="margin-bottom:14px"><input type="date" class="field" id="rFrom" value="${from}" style="width:auto"> <span>sampai</span> <input type="date" class="field" id="rTo" value="${to}" style="width:auto"><button class="btn sm" data-act="applyRange">Tampilkan</button></div>` : '');
+}
+const rangeTitle = (from, to) => from === to ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`;
+const csvBtn = (type, from, to, label) => `<a class="btn ghost sm" href="/api/reports/export.csv?from=${from}&to=${to}&type=${type}" download>⬇ ${label}</a>`;
+
+/* 1. Transaksi Penjualan */
+REPORT_VIEWS.sales = async () => {
+  const [from, to] = repRange();
+  const [r, tx] = await Promise.all([api(`/api/reports/range?from=${from}&to=${to}`), api(`/api/reports/transactions?from=${from}&to=${to}`)]);
   const cov = r.cost_coverage;
-  $('#main').innerHTML = head('Laporan', from === to ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`,
-    `<a class="btn ghost sm" href="/api/reports/export.csv?from=${from}&to=${to}&type=sales" download>⬇ Unduh transaksi (CSV)</a><a class="btn ghost sm" href="/api/reports/export.csv?from=${from}&to=${to}&type=items" download>⬇ Unduh rincian menu (CSV)</a>`)
-    + `<div class="chips" style="margin-bottom:14px">${presets.map(([k, l]) => `<button data-act="preset" data-p="${k}" class="${state.rep.preset === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    ${state.rep.preset === 'custom' ? `<div class="card flat row wrap" style="margin-bottom:14px"><input type="date" class="field" id="rFrom" value="${from}" style="width:auto"> <span>sampai</span> <input type="date" class="field" id="rTo" value="${to}" style="width:auto"><button class="btn sm" data-act="applyRange">Tampilkan</button></div>` : ''}
-    <div class="grid stats">
-      <div class="card stat"><div class="label">Penjualan bersih</div><div class="val">${rp(r.net_sales)}</div><div class="sub">setelah diskon, sebelum pajak & layanan</div></div>
-      <div class="card stat"><div class="label">Transaksi</div><div class="val">${r.transactions}</div><div class="sub">rata-rata ${rp(r.average)} per nota</div></div>
-      <div class="card stat"><div class="label">Uang masuk (total)</div><div class="val">${rp(r.total)}</div><div class="sub">termasuk pajak & layanan</div></div>
-      <div class="card stat"><div class="label">Laba kotor (perkiraan)</div><div class="val">${!cov ? '—' : rp(r.gross_profit_known)}</div><div class="sub">${cov == null ? 'belum ada penjualan' : cov === 0 ? 'isi HPP menu agar laba terhitung' : `dari penjualan yang HPP-nya terisi (${cov}%), sebelum diskon`}</div></div>
+  $('#main').innerHTML = repHead('Transaksi Penjualan', rangeTitle(from, to), csvBtn('sales', from, to, 'Transaksi (CSV)') + csvBtn('items', from, to, 'Rincian menu (CSV)')) + repBar()
+    + `<div class="grid stats">
+      ${stat('Penjualan bersih', rp(r.net_sales), 'setelah diskon, sebelum pajak & layanan')}
+      ${stat('Transaksi', r.transactions, `rata-rata ${rp(r.average)} per nota`)}
+      ${stat('Uang masuk (total)', rp(r.total), 'termasuk pajak & layanan')}
+      ${stat('Laba kotor (perkiraan)', !cov ? '—' : rp(r.gross_profit_known), cov == null ? 'belum ada penjualan' : cov === 0 ? 'isi HPP menu agar laba terhitung' : `dari penjualan ber-HPP (${cov}%), sebelum diskon`)}
+      ${stat('Tagihan meja belum dibayar', rp(tx.unpaid_orders.total), `${tx.unpaid_orders.n} pesanan QR sudah diterima, belum dibayar`)}
+      ${stat('Diskon & batal', rp(r.discount), `${r.void_count} transaksi dibatalkan (${rp(r.void_total)})`)}
     </div>
     ${cov != null && cov < 100 ? `<div class="notice" style="margin-top:14px">${cov === 0 ? 'Laba belum bisa dihitung: belum ada menu terjual yang diisi HPP (modal).' : `Laba belum akurat: hanya <b>${cov}%</b> penjualan yang menunya sudah diisi HPP (modal).`} Lengkapi di <b>Kelola → Menu & Harga</b>.</div>` : ''}
+    <div class="notice" style="margin-top:14px;background:#f1efe4;border-color:var(--line);color:var(--muted)"><b>Soal piutang:</b> aplikasi ini mencatat setiap nota <b>lunas saat dibayar</b>, jadi belum ada piutang/kasbon. Yang bisa dilihat adalah <b>tagihan meja</b> (pesanan QR yang sudah diterima tetapi belum dibayar) di atas.</div>
     <div class="grid g2" style="margin-top:14px">
-      <div class="card"><h3>Rincian</h3><table><tbody><tr><td>Subtotal</td><td class="num">${rp(r.subtotal)}</td></tr><tr><td>Diskon</td><td class="num">${r.discount ? '−' + rp(r.discount) : rp(0)}</td></tr><tr><td>Biaya layanan</td><td class="num">${rp(r.service)}</td></tr><tr><td>Pajak</td><td class="num">${rp(r.tax)}</td></tr><tr><td>Pembulatan</td><td class="num">${rp(r.rounding)}</td></tr><tr><td><b>Total</b></td><td class="num"><b>${rp(r.total)}</b></td></tr><tr><td class="muted">Dibatalkan (tidak dihitung)</td><td class="num muted">${r.void_count}× · ${rp(r.void_total)}</td></tr></tbody></table></div>
-      <div class="card"><h3>Per cara bayar</h3>${r.by_method.length ? barRows(r.by_method, m => `${esc(METHOD_NAME(m.method))} <span class="muted">(${m.n})</span>`, m => m.total) : '<div class="empty">Belum ada data.</div>'}
-      ${r.by_type.length ? `<h3 style="margin:18px 0 8px">Jenis pesanan</h3>${barRows(r.by_type, t => esc(state.orderTypes[t.order_type] || t.order_type), t => t.total, 'gold')}` : ''}</div>
-      <div class="card"><h3>Jam ramai</h3>${r.by_hour.length ? barRows(r.by_hour, h => `${h.hour}:00 <span class="muted">(${h.n})</span>`, h => h.total, 'gold') : '<div class="empty">Belum ada data.</div>'}</div>
-      ${r.by_day.length > 1 ? `<div class="card"><h3>Per hari</h3>${barRows(r.by_day, d => new Date(d.date + 'T00:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' }), d => d.total)}</div>` : ''}
+      <div class="card"><h3>Rincian</h3><table><tbody><tr><td>Subtotal</td><td class="num">${rp(r.subtotal)}</td></tr><tr><td>Diskon</td><td class="num">${r.discount ? '−' + rp(r.discount) : rp(0)}</td></tr><tr><td>Biaya layanan</td><td class="num">${rp(r.service)}</td></tr><tr><td>Pajak</td><td class="num">${rp(r.tax)}</td></tr><tr><td>Pembulatan</td><td class="num">${rp(r.rounding)}</td></tr><tr><td><b>Total</b></td><td class="num"><b>${rp(r.total)}</b></td></tr></tbody></table></div>
+      <div class="card"><h3>Per cara bayar</h3>${r.by_method.length ? barRows(r.by_method, m => `${esc(METHOD_NAME(m.method))} <span class="muted">(${m.n})</span>`, m => m.total) : emptyNote('Belum ada data.')}${r.by_type.length ? `<h3 style="margin:18px 0 8px">Jenis pesanan</h3>${barRows(r.by_type, t => esc(state.orderTypes[t.order_type] || t.order_type), t => t.total, 'gold')}` : ''}</div>
+      <div class="card"><h3>Jam ramai</h3>${r.by_hour.length ? barRows(r.by_hour, h => `${h.hour}:00 <span class="muted">(${h.n})</span>`, h => h.total, 'gold') : emptyNote('Belum ada data.')}</div>
+      ${r.by_day.length > 1 ? `<div class="card"><h3>Per hari</h3>${barRows(r.by_day, d => dayShort(d.date), d => d.total)}</div>` : ''}
     </div>
-    <div class="card" style="margin-top:14px"><h3>Menu terlaris</h3><div class="tablewrap"><table><thead><tr><th>Menu</th><th class="num">Terjual</th><th class="num">Penjualan</th><th class="num">Margin</th></tr></thead><tbody>${r.top.map(t => { const m = t.revenue_with_cost ? Math.round((t.revenue_with_cost - t.cost) * 100 / t.revenue_with_cost) : null; return `<tr><td>${esc(t.name)}</td><td class="num">${t.qty}</td><td class="num">${rp(t.revenue)}</td><td class="num">${m == null ? '<span class="muted">HPP kosong</span>' : m + '%'}</td></tr>`; }).join('') || '<tr><td colspan="4" class="empty">Belum ada penjualan.</td></tr>'}</tbody></table></div></div>`;
+    <div class="card" style="margin-top:14px"><h3>Daftar transaksi (${tx.items.length}${tx.truncated ? '+' : ''})</h3><div class="tablewrap"><table><thead><tr><th>Waktu</th><th>No. nota</th><th>Pelanggan</th><th>Meja</th><th>Bayar</th><th>Kasir</th><th class="num">Total</th></tr></thead><tbody>${tx.items.map(x => `<tr class="clickrow" data-act="sale" data-id="${esc(x.id)}"><td class="nowrap">${esc(fmtDateTime(x.created_at))}</td><td>${esc(x.id)}${x.status === 'void' ? ' <span class="pill bad">Batal</span>' : ''}</td><td>${esc(x.customer_name || '—')}</td><td>${esc(x.table_no || '—')}</td><td>${esc(METHOD_NAME(x.payment_method))}</td><td>${esc(x.cashier || '—')}</td><td class="num"><b>${rp(x.total_amount)}</b></td></tr>`).join('') || '<tr><td colspan="7" class="empty">Belum ada transaksi pada periode ini.</td></tr>'}</tbody></table></div>${tx.truncated ? '<p class="hint">Hanya 1.000 transaksi terbaru yang ditampilkan; unduh CSV untuk semuanya.</p>' : ''}</div>`;
+};
+
+/* 2. Omzet Per Bulan */
+REPORT_VIEWS.monthly = async () => {
+  const n = state.repMonths || 12, d = await api(`/api/reports/monthly?months=${n}`), it = d.items;
+  const sum = k => it.reduce((a, x) => a + x[k], 0), best = it.reduce((a, x) => x.total > a.total ? x : a, it[0]);
+  $('#main').innerHTML = repHead('Omzet Per Bulan', `${monthName(it[0].month)} – ${monthName(it[it.length - 1].month)}`, `<div class="seg" style="min-width:210px">${[6, 12, 24].map(k => `<button data-act="repMonths" data-n="${k}" class="${n === k ? 'on' : ''}">${k} bulan</button>`).join('')}</div>`)
+    + `<div class="grid stats">${stat('Total uang masuk', rp(sum('total')), `${nf.format(sum('n'))} transaksi`)}${stat('Rata-rata per bulan', rp(Math.round(sum('total') / it.length)), `${it.length} bulan`)}${stat('Bulan terbaik', best.total ? monthName(best.month) : '—', best.total ? rp(best.total) : 'belum ada data')}${stat('Laba kotor (perkiraan)', rp(sum('gross_profit')), 'dari penjualan yang HPP-nya terisi')}</div>
+    <div class="card" style="margin-top:14px"><h3>Perkembangan omzet</h3>${colChart(it, x => x.total, (x, full) => full ? monthName(x.month) : monthShort(x.month))}</div>
+    <div class="card" style="margin-top:14px"><div class="tablewrap"><table><thead><tr><th>Bulan</th><th class="num">Transaksi</th><th class="num">Item</th><th class="num">Penjualan bersih</th><th class="num">Uang masuk</th><th class="num">Laba kotor</th><th class="num">Naik/turun</th></tr></thead><tbody>${[...it].reverse().map((x, i, arr) => { const prev = arr[i + 1]; const dl = prev ? pctDelta(x.total, prev.total) : null; return `<tr><td>${esc(monthName(x.month))}</td><td class="num">${x.n}</td><td class="num">${nf.format(x.items)}</td><td class="num">${rp(x.net)}</td><td class="num"><b>${rp(x.total)}</b></td><td class="num">${x.coverage ? rp(x.gross_profit) : '<span class="muted">—</span>'}</td><td class="num">${dl == null ? '<span class="muted">—</span>' : `<span class="delta ${dl >= 0 ? 'up' : 'down'}">${dl >= 0 ? '▲' : '▼'} ${Math.abs(dl)}%</span>`}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+};
+
+/* 3. Produk Terlaris */
+REPORT_VIEWS.top = async () => {
+  const [from, to] = repRange(), by = state.repTopBy || 'qty', d = await api(`/api/reports/products?from=${from}&to=${to}&sort=${by}`);
+  const items = d.items.slice(0, 30), max = Math.max(1, ...items.map(x => by === 'qty' ? x.qty : x.revenue));
+  $('#main').innerHTML = repHead('Produk Terlaris', rangeTitle(from, to), `<div class="seg" style="min-width:250px"><button data-act="repTopBy" data-by="qty" class="${by === 'qty' ? 'on' : ''}">Paling banyak terjual</button><button data-act="repTopBy" data-by="revenue" class="${by === 'revenue' ? 'on' : ''}">Nilai tertinggi</button></div>`) + repBar()
+    + `<div class="card">${items.length ? `<div class="list">${items.map((x, i) => `<div class="item"><span class="rank">${i + 1}</span><div class="grow"><div class="t">${esc(x.name)} <span class="small muted">· ${esc(x.category)}</span></div><div class="track" style="margin-top:6px"><div class="fill ${i < 3 ? 'gold' : ''}" style="width:${Math.round((by === 'qty' ? x.qty : x.revenue) / max * 100)}%"></div></div></div><div class="end"><div class="t">${nf.format(x.qty)}×</div><div class="s">${rp(x.revenue)}</div></div></div>`).join('')}</div>` : emptyNote('Belum ada penjualan pada periode ini.')}</div>
+    <p class="hint">Menampilkan 30 teratas dari ${d.items.length} produk terjual. Lihat semuanya di laporan <b>Produk Terjual</b>.</p>`;
+};
+
+/* 4. Produk Terjual */
+REPORT_VIEWS.sold = async () => {
+  const [from, to] = repRange(), by = state.repTopBy || 'qty', d = await api(`/api/reports/products?from=${from}&to=${to}&sort=${by}`);
+  const q = (state.repSoldQ || '').toLowerCase(), list = d.items.filter(x => !q || `${x.name} ${x.category}`.toLowerCase().includes(q));
+  $('#main').innerHTML = repHead('Produk Terjual', rangeTitle(from, to), csvBtn('products', from, to, 'Unduh (CSV)')) + repBar()
+    + `<div class="grid stats">${stat('Jenis produk terjual', d.items.length, 'menu yang laku pada periode ini')}${stat('Total porsi terjual', nf.format(d.total_qty), '')}${stat('Total nilai penjualan', rp(d.total_revenue), 'sebelum diskon, pajak & layanan')}</div>
+    <div class="card" style="margin-top:14px"><div class="pos-tools"><input id="soldq" class="field" type="search" placeholder="🔍  Cari produk atau kategori…" value="${esc(state.repSoldQ || '')}" autocomplete="off"><div class="seg" style="min-width:230px"><button data-act="repTopBy" data-by="qty" class="${by === 'qty' ? 'on' : ''}">Urut jumlah</button><button data-act="repTopBy" data-by="revenue" class="${by === 'revenue' ? 'on' : ''}">Urut nilai</button></div></div>
+    <div class="tablewrap"><table><thead><tr><th>#</th><th>Produk</th><th>Kategori</th><th class="num">Terjual</th><th class="num">Nilai penjualan</th><th class="num">Rata-rata/porsi</th><th class="num">Margin</th></tr></thead><tbody>${list.map((x, i) => { const m = x.revenue_with_cost ? Math.round((x.revenue_with_cost - x.cost) * 100 / x.revenue_with_cost) : null; return `<tr><td>${i + 1}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.category)}</td><td class="num">${nf.format(x.qty)}</td><td class="num">${rp(x.revenue)}</td><td class="num">${rp(Math.round(x.revenue / x.qty))}</td><td class="num">${m == null ? '<span class="muted">HPP kosong</span>' : m + '%'}</td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">Tidak ada produk yang cocok.</td></tr>'}</tbody></table></div></div>`;
+  const inp = $('#soldq'); inp.oninput = e => { state.repSoldQ = e.target.value; clearTimeout(state._rq); state._rq = setTimeout(() => REPORT_VIEWS.sold().then(() => { const i2 = $('#soldq'); i2.focus(); i2.setSelectionRange(i2.value.length, i2.value.length); }), 250); };
+};
+
+/* 5. Transaksi Pelanggan (+ daftar pelanggan) */
+REPORT_VIEWS.cust = async () => {
+  const [from, to] = repRange(), d = await api(`/api/reports/customers?from=${from}&to=${to}`);
+  state.custReport = d;
+  const q = (state.repCustQ || '').toLowerCase(), list = d.items.filter(x => !q || `${x.name} ${x.phone}`.toLowerCase().includes(q));
+  const total = d.items.reduce((a, x) => a + x.total, 0), n = d.items.reduce((a, x) => a + x.n, 0);
+  $('#main').innerHTML = repHead('Transaksi Pelanggan', rangeTitle(from, to), csvBtn('customers', from, to, 'Unduh (CSV)') + '<button class="btn" data-act="custAdd">+ Tambah pelanggan</button>') + repBar()
+    + `<div class="grid stats">${stat('Pelanggan bertransaksi', d.items.length, 'nama yang tercatat pada nota')}${stat('Belanja pelanggan bernama', rp(total), `${nf.format(n)} transaksi`)}${stat('Tanpa nama', rp(d.anonymous.total), `${nf.format(d.anonymous.n)} transaksi tanpa nama pelanggan`)}${stat('Rata-rata belanja', d.items.length ? rp(Math.round(total / d.items.length)) : '—', 'per pelanggan')}</div>
+    <div class="notice" style="margin-top:14px">Nama pelanggan diisi kasir saat membayar (kolom <b>Nama pelanggan</b>), atau otomatis dari <b>nama yang diisi pelanggan di pesanan QR</b>. Nomor HP hanya bisa dilihat dan diisi pemilik — minta persetujuan pelanggan sebelum menyimpannya.</div>
+    <div class="card" style="margin-top:14px"><input id="custq" class="field" type="search" placeholder="🔍  Cari nama atau nomor HP…" value="${esc(state.repCustQ || '')}" autocomplete="off" style="margin-bottom:8px">
+    <div class="list">${list.map((x, i) => `<button class="item" data-act="custOpen" data-i="${d.items.indexOf(x)}"><span class="avatar">${esc(x.name.slice(0, 1).toUpperCase())}</span><div class="grow"><div class="t">${esc(x.name)}${x.phone ? ` <span class="small muted">· ${esc(x.phone)}</span>` : ''}</div><div class="s">${x.n} transaksi · rata-rata ${rp(x.avg)} · terakhir ${esc(fmtDateTime(x.last_at))}</div></div><div class="end"><div class="t">${rp(x.total)}</div></div></button>`).join('') || emptyNote('Belum ada pelanggan bernama pada periode ini.')}</div></div>
+    ${d.idle.length ? `<div class="card" style="margin-top:14px"><h3>Terdaftar, belum belanja pada periode ini (${d.idle.length})</h3><div class="list">${d.idle.map((x, i) => `<button class="item" data-act="custIdle" data-i="${i}"><span class="avatar">${esc(x.name.slice(0, 1).toUpperCase())}</span><div class="grow"><div class="t">${esc(x.name)}</div><div class="s">${esc(x.phone || 'tanpa nomor HP')}${x.note ? ' · ' + esc(x.note) : ''}</div></div></button>`).join('')}</div></div>` : ''}`;
+  $('#custq').oninput = e => { state.repCustQ = e.target.value; clearTimeout(state._rq); state._rq = setTimeout(() => REPORT_VIEWS.cust().then(() => { const i2 = $('#custq'); i2.focus(); i2.setSelectionRange(i2.value.length, i2.value.length); }), 250); };
+};
+function custForm(c, title) {
+  return formSheet({ title, fields: [{ name: 'name', label: 'Nama pelanggan', value: c?.name || '', maxlength: 40 }, { name: 'phone', label: 'Nomor HP (opsional)', value: c?.phone || '', maxlength: 20, hint: 'Simpan hanya dengan persetujuan pelanggan.' }, { name: 'note', label: 'Catatan (opsional)', value: c?.note || '', maxlength: 160, placeholder: 'mis. suka kopi susu, alergi kacang' }],
+    hint: '', submit: 'Simpan',
+    onSubmit: async (v, f) => { if (!v.name) throw new Error('Nama wajib diisi.'); const body = { name: c ? c.name : v.name, phone: v.phone, note: v.note }; if (c && v.name.toLowerCase() !== c.name.toLowerCase()) body.rename_to = v.name; await api('/api/customers', { method: 'PUT', body }); f.close(); toast('Pelanggan disimpan', 'ok'); REPORT_VIEWS.cust(); } });
+}
+async function custSheet(c) {
+  const [from, to] = repRange();
+  const d = await api(`/api/reports/customer?name=${encodeURIComponent(c.name)}&from=${from}&to=${to}`);
+  openSheet({ title: c.name, wide: true,
+    body: `<div class="grid stats" style="margin-bottom:12px">${stat('Total belanja', rp(c.total), `${c.n} transaksi`)}${stat('Rata-rata', rp(c.avg), 'per transaksi')}${stat('Pertama / terakhir', esc(fmtDateTime(c.first_at)), esc(fmtDateTime(c.last_at)))}</div>
+      ${c.phone || c.note ? `<div class="notice" style="margin-bottom:12px">${c.phone ? '📞 ' + esc(c.phone) : ''}${c.phone && c.note ? ' · ' : ''}${c.note ? '📝 ' + esc(c.note) : ''}</div>` : ''}
+      <div class="list">${d.items.map(x => `<button class="item" data-act="sale" data-id="${esc(x.id)}"><div><div class="t">${esc(fmtDateTime(x.created_at))} · ${esc(x.id)}</div><div class="s">${esc(x.items.map(i => `${i.quantity}× ${i.name_snapshot}`).join(', '))}</div><div class="s">${esc(METHOD_NAME(x.payment_method))}${x.table_no ? ' · ' + esc(x.table_no) : ''}</div></div><div class="end"><div class="t">${rp(x.total_amount)}</div>${x.status === 'void' ? '<span class="pill bad">Batal</span>' : ''}</div></button>`).join('') || emptyNote('Tidak ada transaksi.')}</div>`,
+    footer: '<button class="btn ghost" data-edit>Ubah data / ganti nama</button><button class="btn" data-done>Tutup</button>',
+    onMount: s => { s.q('[data-done]').onclick = () => s.close(); s.q('[data-edit]').onclick = () => { s.close(); custForm(c, `Ubah ${c.name}`); }; } });
 }
 
 /* ============================== KELOLA (pemilik) ============================== */
@@ -1044,7 +1175,7 @@ const ACT = {
   help: () => openSheet({ title: 'Bantuan singkat', wide: true, body: HELP_HTML, footer: '<button class="btn" data-done>Mengerti</button>', onMount: s => { s.q('[data-done]').onclick = () => s.close(); } }),
   queueNow: () => { setQueue(getQueue().map(x => { delete x.error; return x; })); flushQueue(); },
   queueDrop: () => { setQueue(getQueue().filter(x => !x.error)); drawOfflineBar(); },
-  go: el => { if (el.dataset.sub) state.sub = el.dataset.sub; go(el.dataset.view); },
+  go: el => { if (el.dataset.sub) state.sub = el.dataset.sub; if (el.dataset.view === 'laporan') state.repView = null; go(el.dataset.view); },
   logout: async () => { Object.keys(localStorage).filter(k => k.startsWith('ks_snap:')).forEach(k => localStorage.removeItem(k)); clearInterval(state._poll); document.title = 'Kopi Sawah — Kasir'; try { await api('/api/auth/logout', { method: 'POST' }); } catch { /* abaikan */ } state.me = null; state.products = []; state.mods = null; state.shift = null; boot(); },
   pickStaff: el => pinScreen(parseInt(el.dataset.id, 10), el.dataset.name),
   setCash: el => { $('#openCash').value = el.dataset.v === '0' ? '' : nf.format(parseInt(el.dataset.v, 10)); $('#openCash').focus(); },
@@ -1083,6 +1214,14 @@ const ACT = {
   checkout: checkoutSheet,
   sale: el => saleSheet(el.dataset.id).catch(e => toast(e.message, 'bad')),
   dayShift: el => { const t = todayWIB(), n = addDays(state.pesananDate || t, parseInt(el.dataset.d, 10)); state.pesananDate = n > t ? t : n; go('pesanan'); },
+  repOpen: el => { state.repView = el.dataset.r; go('laporan'); },
+  repBack: () => { state.repView = null; go('laporan'); },
+  repMonths: el => { state.repMonths = parseInt(el.dataset.n, 10); go('laporan'); },
+  repTopBy: el => { state.repTopBy = el.dataset.by; go('laporan'); },
+  custAdd: () => custForm(null, 'Tambah pelanggan'),
+  custOpen: el => custSheet(state.custReport.items[parseInt(el.dataset.i, 10)]).catch(e => toast(e.message, 'bad')),
+  custIdle: el => custForm(state.custReport.idle[parseInt(el.dataset.i, 10)], 'Ubah pelanggan'),
+  homeDays: el => { state.homeDays = parseInt(el.dataset.d, 10); viewHome(); },
   preset: el => { state.rep.preset = el.dataset.p; go('laporan'); },
   applyRange: () => { state.rep.from = $('#rFrom').value; state.rep.to = $('#rTo').value; go('laporan'); },
   sub: el => { state.sub = el.dataset.s; $$('[data-act=sub]').forEach(b => b.classList.toggle('on', b === el)); SUBVIEWS[state.sub](); },

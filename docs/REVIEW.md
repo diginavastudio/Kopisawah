@@ -191,3 +191,10 @@ Setelah perbaikan: **0 masalah** di seluruh ukuran yang diuji. *Saya tidak bisa 
 6. **Loyalti/reservasi/bahasa Inggris:** mana yang benar-benar dibutuhkan 3 bulan ke depan?
 7. **Level pedas:** ingin tetap tampil di semua Makanan/Lauk, atau hanya menu tertentu?
 8. Konfirmasi dari bagian 5: *Tanpa nasi −4k* untuk 8 menu udang & cumi; *Frenchfresh* = French fries; nasib *Long Black/Ice Americano*.
+
+## 10. Ronde 6 — catatan jujur
+- **Teruji (data tiruan, Chromium, DB sementara):** hub 5 laporan, beranda baru, sheet pelanggan, nama pelanggan di kasir & struk, layar 1920 px terisi penuh tanpa geser samping.
+- **Belum teruji:** data sungguhan toko, printer/struk asli, HP pelanggan asli.
+- **Laba = laba kotor perkiraan** dari HPP manual; menu tanpa HPP tidak ikut (kartu menampilkan "—" dan catatan). Tingkat keyakinan angka laba: rendah sampai HPP terisi.
+- **Piutang belum didukung** (semua nota lunas). Menambahkannya = fitur baru (kasbon, pelunasan, jatuh tempo) — perlu keputusan Anda.
+- **Nomor HP pelanggan = data pribadi:** hanya pemilik yang melihat; minta persetujuan pelanggan.
