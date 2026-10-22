@@ -1,36 +1,27 @@
-# Kopi Sawah — Kasir & Katalog (uji coba)
+# Kopi Sawah — Kasir & Katalog
 
-Aplikasi kasir web untuk **Kopi Sawah Klaten**: katalog menu, kasir dengan varian berbayar,
-stok, riwayat, dan laporan harian. Dibangun sebagai satu proses Python (`http.server`) dengan
-basis data SQLite, tanpa dependensi pihak ketiga, lalu diproksikan oleh nginx.
+Aplikasi kasir web untuk **Kopi Sawah Klaten**. Satu proses Python (`http.server`) + SQLite, **tanpa
+dependensi pihak ketiga**, diproksikan nginx (HTTPS). Tampilan terang, tombol besar, Bahasa Indonesia,
+dibuat untuk pengguna awam (HP, tablet, atau laptop).
 
-> **Status: uji coba internal.** Belum ada login/peran, belum ada pajak, diskon, cetak struk,
-> atau tutup kasir. Jangan dipakai untuk transaksi pelanggan nyata sebelum pengaman itu dipasang.
+> **Status: siap uji coba terbatas, belum "terbukti di lapangan".** Semua pengujian sejauh ini memakai
+> data tiruan di database sementara. Lihat [`docs/REVIEW.md`](docs/REVIEW.md) untuk apa yang sudah
+> dan belum teruji, serta daftar kekurangan yang diketahui.
 
 ## Fitur
 
-- **Katalog 124 menu** (Makanan, Lauk, Minuman, Kopi, Wedangan, Camilan, Paket, Sayuran, Sup, Add-on)
-  beserta harga dan foto.
-- **Kasir dengan varian berbayar**: Suhu, Level Gula, Level Es, Ukuran (Large +Rp5.000),
-  Extra Shot (+Rp5.000), Jenis Susu (Oat Milk +Rp5.000), Sambal Tambahan (+Rp4.000, maks 2).
-  Kelompok varian dipasang **per kategori**, bukan per menu.
-- **Pengaman transaksi**: kunci idempoten (`request_id`) sehingga klik ganda tidak membuat
-  transaksi ganda; validasi stok untuk menu yang sudah dihitung.
-- **Stok berbasis hitungan fisik**: menu yang sudah dihitung otomatis "terlacak" (dipotong saat
-  terjual dan tidak boleh melebihi stok); menu lain diberi label "belum dilacak".
-- **Laporan harian memakai WIB** (kolom `sales.business_date`), bukan UTC.
-- **Manajemen varian** dari layar: tambah/ubah/hapus kelompok dan pilihan, atur per kategori.
-
-## Struktur
-
-```
-app.py                     server + API (tanpa dependensi)
-static/index.html          antarmuka (satu berkas, tema gelap-emas)
-static/images/             foto menu, logo, kartu menu
-data/catalog.json          katalog awal (benih 124 menu)
-docs/PERUBAHAN.md          catatan perubahan & rollback
-deploy/                    konfigurasi nginx, unit systemd, varian halaman, skrip uji
-```
+| Area | Isi |
+|---|---|
+| **Akun & peran** | Pemilik & Kasir, masuk dengan PIN (di-hash PBKDF2), batas percobaan salah, sesi 12 jam, riwayat aktivitas |
+| **Kasir** | Cari/filter menu, varian berbayar (ukuran, gula, es, susu, extra shot, sambal), keranjang yang bertahan saat halaman dimuat ulang, jenis pesanan (makan di sini/bawa pulang), nomor meja, catatan |
+| **Pembayaran** | Tunai (uang diterima + kembalian + tombol uang pas), QRIS, kartu, e-wallet, transfer *(non-tunai hanya dicatat, belum terintegrasi payment gateway)* |
+| **Harga** | Diskon (% atau Rp, wajib alasan, batas untuk kasir diatur pemilik), biaya layanan, pajak, pembulatan — semua bawaan **0** |
+| **Kas bershift** | Buka kasir (uang awal) → tutup kasir (hitung uang, selisih, laporan tutup kasir yang bisa dicetak) |
+| **Struk & tiket** | Struk 58/80 mm dan tiket dapur lewat cetak browser |
+| **Pembatalan** | Pemilik dapat membatalkan transaksi (alasan wajib), stok dikembalikan |
+| **Stok** | Hitungan fisik per menu, otomatis berkurang & tidak boleh minus, tanda "habis" cepat dari kasir |
+| **Laporan** | Penjualan bersih, per cara bayar, jam ramai, per hari, menu terlaris, laba kotor perkiraan (dari HPP), unduh CSV |
+| **Data** | Unduh cadangan `.sqlite3` dari layar Pengaturan |
 
 ## Menjalankan lokal
 
@@ -38,39 +29,49 @@ deploy/                    konfigurasi nginx, unit systemd, varian halaman, skri
 python3 app.py                     # http://127.0.0.1:8791
 ```
 
-Variabel lingkungan:
+Saat pertama dijalankan, terminal menampilkan **KODE PENYIAPAN** (8 angka). Buka alamat di atas →
+isi nama, PIN pemilik (6–8 angka), dan kode itu → akun pemilik dibuat. Setelah itu pemilik menambah
+kasir di **Kelola → Tim**.
+
+Uji otomatis (memakai database sementara):
+
+```bash
+python3 -m unittest discover -s tests -v                          # API
+NODE_PATH=/opt/node-tools/node_modules node tests/browser_check.js  # alur layar di Chromium
+```
+
+### Variabel lingkungan
 
 | Variabel | Arti |
 |---|---|
 | `KOPI_SAWAH_PORT` | port (bawaan `8791`) |
 | `KOPI_SAWAH_DB` | lokasi berkas SQLite |
 | `KOPI_SAWAH_TZ` | zona waktu laporan (bawaan `Asia/Jakarta`) |
-| `KOPI_SAWAH_WRITE_UNTIL` | batas waktu tulis ISO-8601; kosong/terlewat = semua tulis ditolak |
-| `KOPI_SAWAH_REQUIRE_STOCK` | `1` = semua menu wajib punya stok sebelum bisa dijual |
-| `KOPI_SAWAH_REQUIRE_ORIGIN` | `1` = permintaan tulis harus berasal dari domain yang sama |
+| `KOPI_SAWAH_SETUP_CODE` | kode penyiapan tetap (bawaan: acak tiap start, dicetak ke log) |
+| `KOPI_SAWAH_REQUIRE_ORIGIN` | `1` = permintaan tulis wajib membawa `Origin` yang sama dengan host (dipakai di server) |
+| `KOPI_SAWAH_REQUIRE_STOCK` | `1` = menu yang stoknya belum dihitung tidak bisa dijual |
 
-## API singkat
+`KOPI_SAWAH_WRITE_UNTIL` (jendela tulis) **sudah dihapus**; nilainya diabaikan.
 
-| Metode | Jalur | Guna |
-|---|---|---|
-| GET | `/api/health` | status, zona waktu, jumlah menu/transaksi |
-| GET | `/api/products` | katalog (mendukung `?q=` dan `?category=`) |
-| POST | `/api/products` | tambah menu |
-| PUT | `/api/products/<id>` | ubah harga/nama/kategori/status lacak stok |
-| GET | `/api/modifiers` | kelompok varian + penugasan per kategori |
-| POST/PUT/DELETE | `/api/modifiers/groups`, `/api/modifiers/options` | kelola kelompok & pilihan |
-| PUT | `/api/modifiers/category/<kategori>` | pasang kelompok ke kategori |
-| GET | `/api/stock` · POST `/api/stock/count` | lihat & isi hitungan stok |
-| POST | `/api/sales` | simpan pesanan (`items[].modifiers = [{id}]`) |
-| GET | `/api/sales` · `/api/reports/summary` | riwayat & ringkasan laporan |
+## Struktur
 
-## Keamanan
+```
+app.py                  server + API + migrasi skema
+static/index.html       kerangka halaman
+static/app.css          tampilan
+static/app.js           antarmuka (tanpa pustaka luar)
+static/images/          foto menu & logo
+data/catalog.json       katalog awal (124 menu)
+tests/                  uji API dan uji layar
+deploy/                 nginx, systemd, panduan pasang (deploy/README.md)
+docs/REVIEW.md          review, temuan, dan peta pengembangan
+docs/PERUBAHAN.md       catatan perubahan & rollback
+```
 
-- Proses hanya mendengar di `127.0.0.1`; hanya nginx yang meneruskan.
-- Saat ini pengarah web **meneruskan semua metode** dan tanpa login, jadi **siapa pun yang tahu
-  alamat dapat mengubah data**. Untuk mengunci lagi: `systemctl start kopi-sawah-review-lock.service`.
-- Jangan menaruh kredensial di repo ini; berkas basis data dikecualikan lewat `.gitignore`.
+## Keamanan (ringkas)
 
-## Riwayat perubahan
-
-Lihat [`docs/PERUBAHAN.md`](docs/PERUBAHAN.md) — termasuk cara mengembalikan (rollback).
+- Semua `/api/*` selain `health` & login butuh sesi; yang sensitif (harga, stok, laporan, tim, cadangan, batal) hanya pemilik.
+- Cookie sesi `HttpOnly; SameSite=Strict` (+`Secure` di HTTPS), CSP ketat, tanpa skrip/handler inline.
+- Proses hanya mendengar di `127.0.0.1`; hanya nginx yang boleh meneruskan.
+- Repo ini **publik**: jangan simpan sandi, berkas database, atau cadangan di sini (`.gitignore` sudah mengecualikan `*.sqlite3`).
+- Batasan: belum ada 2FA, PIN pemulihan, atau pembatasan per perangkat. Lihat `docs/REVIEW.md`.

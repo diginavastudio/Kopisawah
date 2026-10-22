@@ -173,3 +173,33 @@ git push
 - Berkas basis data (`data/*.sqlite3`) dan `__pycache__` dikecualikan lewat `.gitignore`.
 - Repo bersifat publik: berisi kode, aset menu, dan konfigurasi deploy tanpa sandi. Untuk menyembunyikan,
   ubah visibility repo ke Private di GitHub, atau minta `deploy/` dikeluarkan dari repo.
+
+
+---
+
+# Ronde 3 — 22 Oktober 2026: login, kasir lengkap, tampilan baru
+
+Detail temuan dan peta pengembangan: [`REVIEW.md`](REVIEW.md). Cara pasang: [`../deploy/README.md`](../deploy/README.md).
+
+## Keamanan
+- Login PIN (PBKDF2-SHA256, 200.000 putaran), peran Pemilik/Kasir, sesi 12 jam di cookie `HttpOnly; SameSite=Strict`.
+- Batas percobaan: 5 PIN salah per akun / 20 per alamat IP → kunci 5 menit.
+- Penyiapan akun pertama memakai **kode penyiapan** yang hanya tampil di log server (agar orang asing tidak bisa merebut akun pemilik).
+- Header keamanan + CSP ketat; semua skrip dipisah dari HTML; galat 500 tidak lagi membocorkan detail.
+- Log aktivitas (`audit_log`): login, ubah harga/menu/stok/pengaturan/tim, buka-tutup kasir, batal transaksi, unduh cadangan.
+- Mekanisme `KOPI_SAWAH_WRITE_UNTIL` dihapus (digantikan login).
+
+## Kasir & data
+- Skema v3 (migrasi otomatis, hanya menambah): tabel `users`, `sessions`, `shifts`, `settings`, `audit_log`; kolom baru di `products` (`cost`, `available`), `sales` (subtotal, diskon, layanan, pajak, pembulatan, dibayar, kembalian, jenis pesanan, meja, kasir, shift, status batal), `sale_items` (`cost_snapshot`).
+- Nomor nota harian `KSyymmdd-001`. Transaksi lama: status `recorded_manual` → `paid`, subtotal diisi dari total.
+- Cara bayar baku: tunai, QRIS, debit/kredit, e-wallet, transfer (teks bebas lama tetap terbaca di riwayat).
+- Hitungan: subtotal − diskon → + layanan → + pajak (atas dasar + layanan) → pembulatan; bilangan bulat, pembulatan setengah-ke-atas; browser dan server memakai aturan sama.
+- Buka/tutup kasir dengan selisih uang; pembatalan transaksi (pemilik) mengembalikan stok; tanda "habis" cepat oleh kasir.
+- Laporan baru: rentang tanggal, per cara bayar/jam/hari/jenis pesanan, menu terlaris, laba kotor perkiraan (dengan cakupan HPP), ekspor CSV; unduh cadangan SQLite.
+- Perbaikan: cek stok digabung per menu; kunci idempoten dicek di dalam transaksi; ringkasan varian tak ambigu ("Level Gula Normal"); seed Long Black Rp10.000 & Ice Americano Rp15.000.
+
+## Dihapus dari `deploy/` (usang)
+`index-review-*.html` (salinan halaman), `REVIEW-WINDOW.md`, `smoke_test.py`, `write_window_smoke.py`, `nginx_writable_preview_smoke.py`, `browser_smoke.js`, `README.txt` lama. Digantikan `tests/` dan `deploy/README.md`. `lock-review-readonly.sh` kini hanya mengunci di nginx (darurat).
+
+## Rollback ronde 3
+Lihat bagian *Rollback* di `deploy/README.md`. Selalu cadangkan database sebelum memperbarui.
