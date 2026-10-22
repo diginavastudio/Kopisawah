@@ -1,9 +1,9 @@
 [Unit]
-Description=Cek versi baru Kopi Sawah di GitHub setiap 3 menit
+Description=Cek versi baru Kopi Sawah di GitHub setiap 1 menit
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=3min
+OnBootSec=45s
+OnUnitActiveSec=1min
 AccuracySec=15s
 Unit=kopi-sawah-deploy.service
 

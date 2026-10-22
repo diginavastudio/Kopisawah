@@ -29,6 +29,12 @@ if [ "$sebelum" = "$tujuan" ]; then
   exit 0
 fi
 
+HOLD=/var/lib/kopi-sawah/DEPLOY-HOLD
+if [ -f "$HOLD" ] && [ "$(head -n1 "$HOLD")" = "$tujuan" ]; then
+  log "versi ${tujuan:0:7} sebelumnya gagal dipasang — dilewati (hapus $HOLD setelah diperbaiki)"
+  exit 7
+fi
+
 log "ada versi baru: ${sebelum:0:7} -> ${tujuan:0:7}"
 git log --oneline "$sebelum..$tujuan" | sed 's/^/    /' | tee -a "$LOG" >&2
 
@@ -53,6 +59,7 @@ fi
 if ! /usr/bin/python3 -m py_compile "$REPO/app.py"; then
   log "GAGAL: app.py tidak lolos pemeriksaan sintaks — dikembalikan ke ${sebelum:0:7}"
   git reset -q --hard "$sebelum"
+  printf '%s %s\n' "$tujuan" "$(date -u +%FT%TZ)" > "$HOLD"
   exit 4
 fi
 
@@ -64,6 +71,7 @@ if command -v node >/dev/null 2>&1 && [ -f "$REPO/static/index.html" ]; then
     rm -f "$tmp_js"
     log "GAGAL: JavaScript di index.html rusak — dikembalikan ke ${sebelum:0:7}"
     git reset -q --hard "$sebelum"
+    printf '%s %s\n' "$tujuan" "$(date -u +%FT%TZ)" > "$HOLD"
     exit 5
   fi
   rm -f "$tmp_js"
@@ -80,6 +88,7 @@ done
 if [ "$sehat" != 1 ]; then
   log "GAGAL: layanan tidak sehat setelah dipasang — dikembalikan ke ${sebelum:0:7}"
   git reset -q --hard "$sebelum"
+  printf '%s %s\n' "$tujuan" "$(date -u +%FT%TZ)" > "$HOLD"
   systemctl restart "$SERVICE"
   sleep 2
   if curl -fsS -m 2 "$HEALTH" >/dev/null 2>&1; then
@@ -89,6 +98,8 @@ if [ "$sehat" != 1 ]; then
   fi
   exit 6
 fi
+
+rm -f /var/lib/kopi-sawah/DEPLOY-HOLD
 
 # 5. tulis penanda versi (dibaca aplikasi lewat /api/health)
 printf '%s %s\n' "$(git rev-parse --short HEAD)" "$(date -u +%FT%TZ)" > /var/lib/kopi-sawah/VERSION
