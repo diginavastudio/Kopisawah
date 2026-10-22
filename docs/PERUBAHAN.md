@@ -230,3 +230,21 @@ Detail: [`REVIEW.md`](REVIEW.md) bagian 5–7. Daftar foto: [`FOTO-MENU.md`](FOT
 
 ## Rollback ronde 4
 Lihat `deploy/README.md`. Cadangkan database sebelum memperbarui.
+
+
+---
+
+# Ronde 5 — 22 Oktober 2026: fitur berikutnya + perbaikan "pas layar"
+
+Detail: [`REVIEW.md`](REVIEW.md) bagian 7–9.
+
+- **Perbaikan tampilan:** tombol Bayar tak lagi terdorong keluar layar (laptop 1366×768, tablet datar); lembar memakai `dvh`; audit otomatis `tests/viewport_audit.js` (12 ukuran × ±28 layar).
+- **Foto menu:** unggah saat tambah menu, foto di atas form, **📷 Lengkapi foto**, filter *Tanpa foto*.
+- **Meja:** tombol *Atur meja & QR* di tab Meja, strip status meja, **Papan dapur**, **Pindah / gabung meja** (`POST /api/orders/move`), bayar sebagian per pesanan.
+- **Offline kasir:** service worker (`/sw.js`), salinan data di perangkat, antrean penjualan dengan kunci idempoten, pita Offline.
+- **QRIS toko** (gambar statis) di halaman status pelanggan: `POST/DELETE /api/settings/qris`.
+- **Cadangan otomatis harian** (`backups/`, `/api/admin/backups*`) + tombol *Cadangkan sekarang*.
+- **Level Pedas** (opsional, Makanan & Lauk).
+- **Panduan mulai** di Beranda dan tombol **?** Bantuan.
+- Tes: API 18 → 20; `browser_ronde5.js` (±20 pemeriksaan termasuk skenario offline nyata).
+- Variabel baru: `KOPI_SAWAH_BACKUP_DIR`, `KOPI_SAWAH_BACKUP_HOUR` (bawaan 3), `KOPI_SAWAH_BACKUP_KEEP` (bawaan 14).

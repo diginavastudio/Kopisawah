@@ -136,25 +136,58 @@ Sumber: `Menu Baru Kopi Sawah.pdf` (15 halaman). Dibandingkan **manual dengan me
 
 **Risiko yang tersisa (jujur):** (1) orang yang memotret QR bisa mengirim pesanan iseng dari luar kafe — dibatasi, tapi kasir tetap harus memilah; (2) batas laju bergantung pada header `X-Real-IP` dari nginx; (3) pelanggan di jaringan seluler yang buruk mungkin gagal kirim (tampil pesan, bisa coba lagi, tidak ganda); (4) stok dicek saat memesan dan saat membayar, bukan “dikunci” di antaranya; (5) belum ada layar dapur terpisah: kasir/barista memakai tab Meja dan tiket cetak manual.
 
-## 7. Fitur penting berikutnya (hasil review ulang)
+## 7. Fitur penting berikutnya — status (Ronde 5)
 
-Diurutkan menurut dampak ke operasional & uang. “Ada di riset Anda” = butir 1–14 di bagian 3.
+Diurutkan menurut dampak ke operasional & uang.
 
-| Prioritas | Fitur | Kenapa penting | Perkiraan |
+| Prioritas | Fitur | Status | Catatan |
 |---|---|---|---|
-| **P1 — sebelum QR dipakai ramai** | **Uji lapangan**: scan dengan HP asli, cetak kartu QR, latih kasir 1 jam, jalankan 1 hari paralel dengan cara lama | Semua pengujian sejauh ini di data tiruan | 1 hari |
-| P1 | **Cadangan otomatis terjadwal** + uji pemulihan | Sekarang cadangan manual; kehilangan 1 hari transaksi = kerugian nyata | ½ hari |
-| P1 | **Foto 86 menu** (daftar prioritas di `docs/FOTO-MENU.md`) | Menu tanpa foto kurang laku di layar pelanggan *(hipotesis, belum terukur)* | operasional |
-| P1 | **Mode offline kasir** (antrean lokal + kirim ulang) | Internet kafe sering putus; sekarang kasir berhenti total | 2–3 hari |
-| P2 | **Layar dapur/bar (KDS)** + cetak tiket otomatis saat diterima | Sekarang tiket dicetak manual; pesanan bisa terlambat diproses | 2 hari + printer |
-| P2 | **QRIS di meja** (statis: tampilkan QRIS toko di halaman status, kasir cek mutasi; dinamis: lewat penyedia pembayaran) | Pelanggan tak perlu antre bayar. Biaya/ketentuan penyedia **tidak terverifikasi** | 1 hari (statis) / ± 1 minggu (dinamis) |
-| P2 | **Resep/BOM + stok bahan + otomatis “habis”** | Laba sebenarnya & hilangkan tandai-habis manual (butir 2–4) | 3–5 hari + data resep |
-| P2 | **Level pedas** untuk makanan (tidak/sedang/pedas) | Masakan Indonesia; sekarang lewat catatan bebas. Bisa ditambah tanpa kode di Kelola → Pilihan Tambahan | menit |
-| P3 | Status meja (kosong/terisi), **pindah & gabung meja**, **split bill** | Umum di kafe ramai; butir 6 | 2 hari |
-| P3 | **Reservasi** (PDF mencantumkan nomor reservasi) | Saat ini lewat WhatsApp | 2 hari |
-| P3 | **Loyalti/pelanggan** (nomor HP, poin/stamp) | Butuh persetujuan data pribadi pelanggan | 3 hari |
-| P3 | Bahasa Inggris di halaman pesan | Bila ada turis | 1 hari |
-| P3 | Notifikasi push/WhatsApp ke pemilik (void besar, selisih kas) | Pengawasan jarak jauh | 1–2 hari |
-| Lanjutan | Multi-outlet, pesanan online (GoFood/GrabFood) | Butir 13; butuh API mitra | besar |
+| P1 | Uji lapangan (scan HP asli, cetak kartu, latih kasir, 1 hari paralel) | ⏳ **Anda** | Hanya bisa dibuktikan dengan pemakaian nyata |
+| P1 | Cadangan otomatis harian + uji pulih | ✅ cadangan; ⏳ uji pulih | Setelah jam 03:00, 14 terakhir, di server yang sama → **tetap unduh salinan ke tempat lain**. Latihan memulihkan belum dilakukan |
+| P1 | Foto 86 menu | ✅ alat; ⏳ **Anda memotret** | *Tambah foto* di form menu (juga saat menambah menu baru), **📷 Lengkapi foto** (daftar beruntun), filter *Tanpa foto* |
+| P1 | Mode offline kasir | ✅ penjualan; ❌ pesanan QR | Aplikasi tetap terbuka (service worker) dan menjual; penjualan disimpan di perangkat, dikirim otomatis, kunci idempoten mencegah dobel. Pesanan QR tetap butuh internet. Lihat batas di bawah |
+| P2 | Papan dapur (KDS) | ✅ dasar | Tab Meja → *Papan dapur*: kolom Diproses/Siap, umur pesanan berwarna. **Belum**: layar terpisah dengan login khusus dapur, cetak tiket otomatis |
+| P2 | QRIS di meja | ✅ statis; ❌ dinamis | Gambar QRIS toko tampil di HP pelanggan; **kasir tetap harus memeriksa uang masuk**. QRIS dinamis/otomatis butuh penyedia pembayaran (keputusan bisnis; biaya tidak terverifikasi) |
+| P2 | Level pedas | ✅ | Opsional di Makanan & Lauk (Tidak pedas/Sedang/Pedas/Extra pedas). Lepas lewat Kelola → Pilihan Tambahan bila tak perlu |
+| P2 | Resep/BOM + stok bahan | ❌ | Menunggu jawaban Anda (lihat pertanyaan di bawah) |
+| P3 | Status meja, pindah/gabung meja | ✅ | Strip status meja, *Pindah / gabung meja* |
+| P3 | Split bill | ◐ | Per **pesanan** ✅ (hilangkan centang). Per **item** ❌ |
+| P3 | Reservasi, loyalti, bahasa Inggris, notifikasi WA | ❌ | Menunggu jawaban Anda |
+| Lanjutan | Multi-outlet, GoFood/GrabFood | ❌ | Butuh API mitra |
 
-Rekomendasi: **jangan menambah fitur sebelum P1 selesai** — fitur terbesar yang belum teruji adalah alur QR di lapangan, dan itu hanya bisa dibuktikan dengan pemakaian nyata.
+**Batas mode offline (jujur):** (1) hanya bisa dipakai bila kasir sudah pernah membuka aplikasi online di perangkat itu (data menu disimpan di perangkat); (2) nomor nota resmi baru muncul setelah terkirim (struk sementara bertanda *OFFLINE-xxxx*); (3) stok, diskon, dan shift divalidasi server saat terkirim — penjualan bisa **ditolak** (mis. stok habis, kasir sudah ditutup) dan tampil merah untuk diputuskan; (4) bila sesi login berakhir selama offline, penjualan terkirim setelah login ulang atas nama pengguna yang login; (5) menghapus data peramban sebelum terkirim menghilangkan antrean; (6) laporan baru memuatnya setelah terkirim; (7) diuji di Chromium dengan jaringan diputus, belum di perangkat kasir asli.
+
+## 8. Review UI/UX (Ronde 5)
+
+Metode: 12 ukuran layar × 28 layar/lembar (HP 320 px sampai desktop 1920 px, termasuk laptop dengan zoom 125%/150% dan layar pendek) diukur otomatis (`tests/viewport_audit.js`): geser horizontal, elemen meluber, lembar terpotong, tombol utama tak terjangkau. Ditambah pemeriksaan visual tangkapan layar.
+
+### Temuan "tidak pas layar" (nyata, sudah diperbaiki)
+| Temuan | Dampak | Perbaikan |
+|---|---|---|
+| **Tombol Bayar di panel keranjang terdorong keluar layar** pada laptop 1366×768 dan tablet datar 1024×768 bila keranjang berisi ±5 baris (panelnya "menempel", tidak bisa di-scroll) | **Kasir tidak bisa membayar** | Panel keranjang kini dibatasi setinggi layar; hanya daftar item yang bergulir, total & tombol Bayar selalu terlihat |
+| Lembar (modal) memakai tinggi `100vh` yang di HP tertutup bilah alamat peramban | Tombol di bawah lembar bisa tertutup | Memakai tinggi layar dinamis (`dvh`) |
+
+Setelah perbaikan: **0 masalah** di seluruh ukuran yang diuji. *Saya tidak bisa melihat perangkat Anda* — bila layar Anda masih tidak pas, kirim tangkapan layar + jenis perangkat/ukuran layar.
+
+### Temuan UX lain
+| # | Temuan | Status |
+|---|---|---|
+| U1 | Unggah foto hanya ada setelah menu disimpan, tersembunyi di tengah form | ✅ Foto di **atas** form, bisa saat tambah menu, plus daftar *Lengkapi foto* |
+| U2 | Membuat/mencetak QR meja tersembunyi di Kelola | ✅ Tombol **⚙ Atur meja & QR** di tab Meja + panduan mulai |
+| U3 | Pengguna baru tak tahu harus mulai dari mana | ✅ *Panduan mulai* (7 langkah, tercentang otomatis) di Beranda + tombol **?** Bantuan |
+| U4 | Tombol "Papan dapur" terpotong; centang di daftar pilihan kurang jelas | ✅ |
+| U5 | Banyak istilah teknis (HPP, shift) | ◐ Ada keterangan; HPP dijelaskan di form & panduan. Pertimbangkan mengganti "HPP" menjadi "Modal" di seluruh layar bila kasir bingung |
+| U6 | 86 menu tampil logo (bukan foto) | ⏳ Foto perlu dipotret |
+| U7 | Ketuk menu "habis" harus lewat mode khusus | ✅ sengaja (mencegah salah ketuk) — dijelaskan di Bantuan |
+| U8 | Suara notifikasi perlu 1 ketukan layar setelah halaman dibuka (aturan peramban) | ⏳ Dijelaskan di Bantuan/deploy |
+
+## 9. Pertanyaan untuk Anda (menentukan langkah berikutnya)
+
+1. **Layar mana yang "tidak pas"?** Perangkat apa (merek/ukuran), dibuka lewat apa (Chrome/Safari/aplikasi), layar yang mana (kasir, menu, QR pelanggan)? Tangkapan layar sangat membantu.
+2. **Foto & QR sudah dilihat di server hidup?** Fitur unggah foto (di form menu) dan pembuatan QR (Kelola → Meja & QR) sudah ada di kode, tetapi baru terlihat setelah **di-deploy** (`deploy/README.md`). Apakah sudah di-deploy?
+3. **Resep/stok bahan:** apakah Anda punya takaran resep per menu (mis. 18 g kopi + 150 ml susu)? Tanpa itu, laba tetap berbasis HPP manual.
+4. **Pembayaran:** cukup QRIS statis + cek manual, atau ingin QRIS otomatis (perlu kontrak penyedia pembayaran)?
+5. **Dapur:** siapa yang memasak/membuat minuman — satu orang atau terpisah (bar & dapur)? Ada printer tiket? (menentukan layar dapur terpisah / cetak otomatis).
+6. **Loyalti/reservasi/bahasa Inggris:** mana yang benar-benar dibutuhkan 3 bulan ke depan?
+7. **Level pedas:** ingin tetap tampil di semua Makanan/Lauk, atau hanya menu tertentu?
+8. Konfirmasi dari bagian 5: *Tanpa nasi −4k* untuk 8 menu udang & cumi; *Frenchfresh* = French fries; nasib *Long Black/Ice Americano*.

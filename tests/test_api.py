@@ -439,6 +439,76 @@ class ApiTest(unittest.TestCase):
             self.assertIn(b"order.js", r.read())
         self.assertEqual(Client(self.port).call("GET", "/m/..%2Fapp", raw=True)[0], 404)
 
+    # ------------------------------------------------------------------ Ronde 5
+    def test_19_cadangan_otomatis_qris_dan_sw(self):
+        owner = self.login("Digi", OWNER_PIN)
+        kasir = self.login("Sari", "2468")
+        import base64, io, zipfile
+        # cadangan otomatis: daftar, jalankan, unduh
+        st, b, _ = owner.call("POST", "/api/admin/backups/run")
+        self.assertEqual(st, 200, b)
+        name = b["name"]
+        self.assertRegex(name, r"^auto-\d{8}\.zip$")
+        st, raw, hdr = owner.call("GET", f"/api/admin/backups/{name}", raw=True)
+        self.assertEqual((st, raw[:2]), (200, b"PK"))
+        self.assertIn("kopi-sawah.sqlite3", zipfile.ZipFile(io.BytesIO(raw)).namelist())
+        self.assertEqual(kasir.call("GET", "/api/admin/backups")[0], 403)
+        self.assertEqual(kasir.call("POST", "/api/admin/backups/run")[0], 403)
+        self.assertEqual(owner.call("GET", "/api/admin/backups/auto-../../etc.zip", raw=True)[0], 404)
+        # gambar QRIS toko
+        jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 3000
+        data = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()
+        self.assertEqual(kasir.call("POST", "/api/settings/qris", {"image": data})[0], 403)
+        self.assertEqual(owner.call("POST", "/api/settings/qris", {"image": "data:image/png;base64,AAAA"})[0], 400)
+        st, r, _ = owner.call("POST", "/api/settings/qris", {"image": data})
+        self.assertEqual(st, 200, r)
+        tok = owner.call("GET", "/api/tables")[1]["items"][0]["token"]
+        menu = Client(self.port).call("GET", f"/api/public/menu?t={tok}")[1]
+        self.assertEqual(menu["settings"]["qris_image"], r["qris_image"])
+        self.assertEqual(Client(self.port).call("GET", f"/media/{r['qris_image']}.jpg", raw=True)[0], 200)
+        self.assertEqual(owner.call("PUT", "/api/settings", {"qris_image": "up-000000000000"})[0], 400, "tidak bisa diubah lewat PUT /settings")
+        self.assertEqual(owner.call("DELETE", "/api/settings/qris")[0], 200)
+        self.assertEqual(Client(self.port).call("GET", f"/api/public/menu?t={tok}")[1]["settings"]["qris_image"], "")
+        # service worker dilayani dari akar dengan cakupan "/"
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/sw.js") as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.headers["Service-Worker-Allowed"], "/")
+            self.assertIn("javascript", resp.headers["Content-Type"])
+
+    def test_20_level_pedas_dan_pindah_meja_dan_bayar_sebagian(self):
+        owner = self.login("Digi", OWNER_PIN)
+        mods = owner.call("GET", "/api/modifiers")[1]
+        pedas = next(g for g in mods["groups"] if g["id"] == "pedas")
+        self.assertEqual((pedas["min_select"], [o["name"] for o in pedas["options"]]), (0, ["Tidak pedas", "Sedang", "Pedas", "Extra pedas"]))
+        self.assertIn("pedas", mods["categories"]["Makanan"])
+        self.assertNotIn("pedas", mods["categories"]["Kopi"])
+        anon = Client(self.port)
+        tables = {t["label"]: t for t in owner.call("GET", "/api/tables")[1]["items"] if t["active"]}
+        a, b = tables["Meja 1"], tables["Meja 3"]
+        p = self.products(owner)
+        def order(tok, name, ip):
+            st, r, _ = anon.call("POST", "/api/public/orders", {"t": tok, "items": [{"product_id": p[name]["id"], "quantity": 1, "modifiers": [{"id": "pedas-2"}]}]}, ip=ip)
+            self.assertEqual(st, 201, r)
+            return r["order"]["id"]
+        o1 = order(a["token"], "Bakmi Goreng", "10.7.0.1")
+        o2 = order(a["token"], "Bakmi Godog", "10.7.0.1")
+        self.assertIn("Sedang", owner.call("GET", "/api/orders")[1]["orders"][-1]["items"][0]["modifiers_summary"])
+        for o in (o1, o2):
+            self.assertEqual(owner.call("POST", f"/api/orders/{o}/status", {"status": "accepted"})[0], 200)
+        # pindah semua pesanan Meja 1 ke Meja 3
+        self.assertEqual(owner.call("POST", "/api/orders/move", {"order_ids": [o1, o2], "to_table_id": 99999})[0], 404)
+        self.assertEqual(owner.call("POST", "/api/orders/move", {"order_ids": [o1, o2], "to_table_id": b["id"]})[0], 200)
+        labels = {o["id"]: o["table_label"] for o in owner.call("GET", "/api/orders")[1]["orders"]}
+        self.assertEqual((labels[o1], labels[o2]), ("Meja 3", "Meja 3"))
+        # bayar sebagian: hanya o1 dulu, lalu o2
+        st, s1, _ = owner.call("POST", "/api/sales", {"order_ids": [o1], "payment_method": "qris", "request_id": "split-req-001"})
+        self.assertEqual((st, s1["item"]["subtotal"], s1["item"]["table_no"]), (201, 20000, "Meja 3"), s1)
+        left = [o["id"] for o in owner.call("GET", "/api/orders")[1]["orders"]]
+        self.assertNotIn(o1, left)
+        self.assertIn(o2, left)
+        self.assertEqual(owner.call("POST", "/api/orders/move", {"order_ids": [o1], "to_table_id": a["id"]})[0], 409, "yang sudah dibayar tak bisa dipindah")
+        self.assertEqual(owner.call("POST", "/api/sales", {"order_ids": [o2], "payment_method": "tunai", "amount_paid": 20000, "request_id": "split-req-002"})[0], 201)
+
 
 if __name__ == "__main__":
     unittest.main()
