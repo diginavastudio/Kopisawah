@@ -1,6 +1,6 @@
 /* Service worker Kopi Sawah: membuat aplikasi kasir tetap bisa DIBUKA saat internet putus.
  * Hanya menyimpan berkas tampilan (HTML/CSS/JS/gambar/klip suara). Data (API) TIDAK pernah disimpan di sini. */
-const VER = 'ks-shell-v2';
+const VER = 'ks-shell-v3';   // v3: klip suara diperbaiki (awal kata tidak terpotong)
 const AUDIO = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'];
 for (let i = 1; i <= 50; i++) AUDIO.push('meja_' + i);
 const SHELL = ['/', '/manifest.webmanifest', '/static/app.css', '/static/app.js', '/static/vendor/qrcode.js',
