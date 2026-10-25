@@ -602,3 +602,23 @@ sudah lolos uji. Penggantian ke Kore dijadwalkan otomatis (lihat bagian 47).
   Satu permintaan dipilih supaya nada suara antar klip tidak bergeser dan kuota tidak habis.
 - Terjadwal sekali: **26 Oktober 2026 08:00 UTC (15:00 WIB)**, hasil dilaporkan ke Telegram pemilik.
   Bila kuota masih habis, skrip berhenti dan **tidak menyentuh klip yang sudah ada**.
+
+## 48. Suara pengumuman diganti ke Grok (xAI) — 25 Oktober 2026
+
+**Alasan:** kuota gratis Gemini TTS habis (10 permintaan/hari/model). Pemilik meminta memakai Grok.
+Endpoint `POST https://api.x.ai/v1/tts` (`{"text","voice","language":"id"}`) tersedia lewat OAuth xAI
+yang sudah terpasang di mesin ini; token OAuth-nya **kedaluwarsa** dan disegarkan lalu disimpan kembali
+ke `/root/.hermes/auth.json` (berlaku ±6 jam, diperbarui otomatis oleh Hermes).
+
+**Suara terpilih:** `ara` (perempuan, hangat). Suara lain tersedia: `eve`, `sal` (perempuan/netral),
+`leo` (laki-laki) — ganti dengan `XAI_VOICE=<nama> python3 bundel_sekali.py xai` lalu `RAW_DIR=mentah python3 pasang_klip.py`.
+
+**Cara membuat:** **satu** permintaan TTS berisi 14 kalimat (17,98 detik) → dipotong di jeda senyap
+(`bundel_sekali.py xai`, ambang −35 dB berhasil tepat 14 potongan) → normalisasi −18 dB → mp3 48 kbps mono 24 kHz.
+Total bundel **105 KB** (sebelumnya 155 KB dengan suara Gadis).
+
+**Hasil uji:** uji API 21/21 lulus; uji layar `tests/browser_suara.js` 9/9 lulus.
+Konsistensi nada antar klip: F0 median 198–216 Hz (satu permintaan = satu warna suara).
+
+**Cadangan klip lama:** `/root/backup-kopi-sawah/audio-gadis-20261025/` (14 berkas).
+**Tugas Gemini ditunda:** cron `ef82d6e13d21` di-*pause*, tidak akan menimpa suara Grok tanpa izin.
