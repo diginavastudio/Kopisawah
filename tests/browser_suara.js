@@ -14,7 +14,7 @@ const path = require('node:path');
 
 const free = () => new Promise(r => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const CHROME = process.env.CHROME_PATH || undefined;
-const KLIP = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'].concat(Array.from({ length: 10 }, (_, i) => 'meja_' + (i + 1)));
+const KLIP = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'].concat(Array.from({ length: 50 }, (_, i) => 'meja_' + (i + 1)));
 
 (async () => {
   const port = await free(), tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ks-suara-'));
@@ -84,12 +84,12 @@ const KLIP = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'].concat(Array.f
     const urutBill = await diputar();
     ok('bill Meja 10: meja_10 lalu ekor_bill', urutBill.join(',') === 'meja_10.mp3,ekor_bill.mp3', urutBill.join(','));
 
-    // 5. meja di luar daftar klip (11) -> cukup bel, tanpa klip
+    // 5. meja di luar daftar klip (51) -> cukup bel, tanpa klip
     await bersih();
-    await page.evaluate(() => antreSuara('pesan', 'Meja 11'));
+    await page.evaluate(() => antreSuara('pesan', 'Meja 51'));
     await tunggu(600);
     const urutLuar = await diputar();
-    ok('Meja 11 tidak memutar klip apa pun', urutLuar.length === 0, urutLuar.join(','));
+    ok('Meja 51 (di luar 1..50) tidak memutar klip apa pun', urutLuar.length === 0, urutLuar.join(','));
 
     // 6. pengumuman sama tidak diulang (dobel)
     await bersih();

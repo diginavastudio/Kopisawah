@@ -1093,7 +1093,7 @@ const voiceAktif = () => ls.get('ks_sound') !== '0';
 function nomorMeja(label) {
   const m = String(label || '').match(/(\d{1,2})\s*$/);
   const n = m ? parseInt(m[1], 10) : 0;
-  return n >= 1 && n <= 10 ? n : 0;                       // klip angka tersedia 1..10 (meja yang ada)
+  return n >= 1 && n <= 50 ? n : 0;                       // klip angka tersedia 1..50
 }
 function voiceSeq(jenis, nomor) {
   const nm = nomor ? VOICE_DIR + 'meja_' + nomor + '.mp3' : '';
@@ -1125,7 +1125,7 @@ function jalanSuara() {
 function antreSuara(jenis, label) {
   if (!voiceAktif()) return;
   const seq = voiceSeq(jenis, nomorMeja(label));
-  if (!seq.length) return;                               // meja di luar 1..10: cukup bel saja
+  if (!seq.length) return;                               // meja di luar 1..50: cukup bel saja
   const kunci = jenis + '|' + (nomorMeja(label) || 0);
   const antre = voiceAntre;
   if (antre.some(p => p.kunci === kunci)) return;
@@ -1147,7 +1147,7 @@ async function suaraDariServer(pesananBaru, panggilanBaru) {
 }
 function hangatkanSuara() {                              // simpan klip di cache browser agar siap saat internet putus
   const daftar = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'];
-  for (let n = 1; n <= 10; n++) daftar.push('meja_' + n);
+  for (let n = 1; n <= 50; n++) daftar.push('meja_' + n);
   daftar.forEach(n => fetch(VOICE_DIR + n + '.mp3').catch(() => { }));
 }
 function ticketOf(o) { return { id: o.id, order_type: 'dine_in', table_no: o.table_label + (o.customer_name ? ' · ' + o.customer_name : ''), created_at: o.created_at, items: o.items, note: o.note }; }
@@ -1229,9 +1229,11 @@ function printQR(list) {
 SUBVIEWS.meja = async () => {
   const [t, st] = await Promise.all([api('/api/tables'), api('/api/settings')]);
   state.settings = st.settings; state.tables = t.items;
-  $('#sub').innerHTML = `<div class="notice" style="margin-bottom:12px">Tiap meja punya QR sendiri. Pelanggan scan → pilih menu → pesanan masuk ke tab <b>Meja</b> di kasir (berbunyi). Pelanggan <b>membayar di kasir</b>. Cetak QR, lalu tempel/laminasi di meja.<br>Alamat yang dipakai di QR: <b>${esc(publicBase())}</b>${state.settings.public_base_url ? '' : ' (alamat yang sedang Anda buka). Bila perlu mengganti, isi di Pengaturan.'}</div>
-    <div class="row wrap" style="margin-bottom:12px"><button class="btn" data-act="addTables">+ Tambah banyak meja</button><button class="btn ghost" data-act="addTable">+ Satu meja (nama bebas)</button><span class="grow"></span><button class="btn ghost" data-act="printAllQR" ${t.items.some(x => x.active) ? '' : 'disabled'}>🖨 Cetak semua QR</button></div>
-    <div class="card"><div class="list">${t.items.map(x => `<button class="item" data-act="tableQR" data-id="${x.id}" ${x.active ? '' : 'style="opacity:.55"'}><span class="avatar" style="border-radius:12px">${icon('table')}</span><div><div class="t">${esc(x.label)}</div><div class="s">${x.active ? 'Aktif' : 'Nonaktif'}</div></div><div class="end"><span class="pill gold">Lihat QR</span></div></button>`).join('') || '<div class="empty">Belum ada meja. Ketuk “Tambah banyak meja”.</div>'}</div></div>`;
+  const terbuka = t.items.filter(x => x.active).length;
+  $('#sub').innerHTML = `<div class="notice" style="margin-bottom:12px">Tiap meja punya QR sendiri. Pelanggan scan → pilih menu → pesanan masuk ke tab <b>Meja</b> di kasir (berbunyi). Pelanggan <b>membayar di kasir</b>. Cetak QR, lalu tempel/laminasi di meja.<br>Alamat yang dipakai di QR: <b>${esc(publicBase())}</b>${state.settings.public_base_url ? '' : ' (alamat yang sedang Anda buka). Bila perlu mengganti, isi di Pengaturan.'}<br><b>Meja harus dalam keadaan Aktif</b> supaya pelanggan bisa memesan dari meja itu. Meja yang ditutup: QR-nya tidak bisa dipakai.</div>
+    <div class="row wrap" style="margin-bottom:10px"><button class="btn" data-act="addTables">+ Tambah banyak meja</button><button class="btn ghost" data-act="addTable">+ Satu meja (nama bebas)</button><span class="grow"></span><button class="btn ghost" data-act="printAllQR" ${terbuka ? '' : 'disabled'}>🖨 Cetak semua QR</button></div>
+    <p class="small muted" style="margin:0 0 10px">Meja terbuka: <b>${terbuka}</b> dari ${t.items.length}</p>
+    <div class="card"><div class="list">${t.items.map(x => `<div class="item"><span class="avatar" style="border-radius:12px">${icon('table')}</span><div class="grow"><div class="t">${esc(x.label)}</div><div class="s">${x.active ? '🟢 Aktif — pelanggan bisa memesan lewat QR' : '⏸ Nonaktif — QR tidak bisa dipakai'}</div></div><div class="end"><div class="row" style="justify-content:flex-end;gap:6px"><button class="btn ${x.active ? 'ghost' : 'gold'} sm" data-act="${x.active ? 'tutupMeja' : 'bukaMeja'}" data-id="${x.id}" data-t="${esc(x.label)}">${x.active ? '⏸ Tutup' : '▶ Aktifkan'}</button><button class="btn ghost sm" data-act="tableQR" data-id="${x.id}">QR</button></div></div></div>`).join('') || '<div class="empty">Belum ada meja. Ketuk “Tambah banyak meja”.</div>'}</div></div>`;
 };
 function tableQRSheet(t) {
   const url = tableURL(t);
@@ -1339,6 +1341,31 @@ const ACT = {
     checkoutSheet({ orders: list, sub: list.reduce((a, o) => a + o.subtotal, 0), label: el.dataset.t });
   },
   tableQR: el => tableQRSheet(state.tables.find(x => x.id === parseInt(el.dataset.id, 10))),
+  bukaMeja: async el => {
+    el.disabled = true;
+    try {
+      await api(`/api/tables/${el.dataset.id}`, { method: 'PUT', body: { active: true } });
+      toast(`${el.dataset.t} dibuka. Pelanggan sudah bisa memesan lewat QR meja itu.`, 'ok');
+      SUBVIEWS.meja();
+    } catch (e) { toast(e.message, 'bad'); el.disabled = false; }
+  },
+  tutupMeja: async el => {
+    const label = el.dataset.t;
+    let pesan = 'Pelanggan tidak bisa memesan dari meja ini lagi sampai dibuka kembali.';
+    try {
+      const d = await api('/api/orders');
+      const n = (d.orders || []).filter(o => o.table_label === label && ['pending', 'accepted', 'ready', 'served'].includes(o.status)).length;
+      if (n) pesan = `Masih ada ${n} pesanan berjalan di ${label}. Pesanan itu tetap bisa dibayar, tetapi pelanggan tidak bisa memesan lagi dari meja ini.`;
+    } catch { /* kalau gagal membaca pesanan, tetap boleh menutup */ }
+    el.disabled = false;
+    if (!await confirmSheet({ title: `Tutup ${label}?`, text: pesan, ok: 'Ya, tutup meja' })) return;
+    el.disabled = true;
+    try {
+      await api(`/api/tables/${el.dataset.id}`, { method: 'PUT', body: { active: false } });
+      toast(`${label} ditutup. Buka lagi lewat tombol “▶ Aktifkan”.`, 'ok');
+      SUBVIEWS.meja();
+    } catch (e) { toast(e.message, 'bad'); el.disabled = false; }
+  },
   printAllQR: () => printQR(state.tables.filter(x => x.active)),
   addTables: () => formSheet({ title: 'Tambah banyak meja', fields: [{ name: 'prefix', label: 'Awalan nama', value: 'Meja', maxlength: 20 }, { name: 'start', label: 'Mulai dari nomor', type: 'number', value: '1' }, { name: 'count', label: 'Jumlah meja', type: 'number', value: '10', hint: 'Contoh: awalan “Meja”, mulai 1, jumlah 10 → Meja 1 … Meja 10. Nama yang sudah ada dilewati.' }], submit: 'Buat meja', onSubmit: async (v, f) => { if (!/^\d+$/.test(v.count) || !/^\d+$/.test(v.start)) throw new Error('Isi nomor dan jumlah dengan angka.'); await api('/api/tables', { method: 'POST', body: { prefix: v.prefix, start: parseInt(v.start, 10), count: parseInt(v.count, 10) } }); f.close(); toast('Meja dibuat. Sekarang cetak QR-nya.', 'ok'); SUBVIEWS.meja(); } }),
   addTable: () => formSheet({ title: 'Tambah satu meja', fields: [{ name: 'label', label: 'Nama meja', maxlength: 30, placeholder: 'mis. Gazebo 1 / Teras' }], submit: 'Buat meja', onSubmit: async (v, f) => { if (!v.label) throw new Error('Nama meja wajib diisi.'); await api('/api/tables', { method: 'POST', body: { label: v.label } }); f.close(); toast('Meja dibuat.', 'ok'); SUBVIEWS.meja(); } }),

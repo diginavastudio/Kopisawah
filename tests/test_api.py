@@ -563,5 +563,36 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(kasir.call("GET", "/api/shifts/current")[0], 200)
 
 
+    def test_22_tombol_aktif_meja_membuka_dan_menutup_pesanan_pelanggan(self):
+        """Meja hanya terbuka untuk pelanggan bila berstatus aktif (tombol Aktifkan)."""
+        owner = self.login("Digi", OWNER_PIN)
+        kasir = self.login("Sari", "2468")
+        anon = Client(self.port)
+        st, r, _ = owner.call("POST", "/api/tables", {"label": "Meja Uji Aktif"})
+        self.assertIn(st, (200, 201))
+        meja = [x for x in owner.call("GET", "/api/tables")[1]["items"] if x["label"] == "Meja Uji Aktif"][0]
+        tok = meja["token"]
+        self.assertTrue(meja["active"], "meja baru langsung aktif")
+        # terbuka: halaman & menu pelanggan bisa dibuka
+        self.assertEqual(anon.call("GET", f"/api/public/menu?t={tok}")[0], 200)
+        self.assertEqual(anon.call("GET", f"/m/{tok}", raw=True)[0], 200)   # halaman QR selalu terbuka; gerbangnya di API
+        # kasir tidak boleh mengubah status meja
+        self.assertEqual(kasir.call("PUT", f"/api/tables/{meja['id']}", {"active": False})[0], 403)
+        # pemilik menutup meja -> pelanggan tidak bisa memesan
+        self.assertEqual(owner.call("PUT", f"/api/tables/{meja['id']}", {"active": False})[0], 200)
+        st, r404, _ = anon.call("GET", f"/api/public/menu?t={tok}")
+        self.assertEqual(st, 404)
+        self.assertIn("tidak dikenal", r404["error"], "pelanggan diberi pesan jelas saat meja ditutup")
+        # label & status tidak hilang saat ditutup
+        meja2 = [x for x in owner.call("GET", "/api/tables")[1]["items"] if x["label"] == "Meja Uji Aktif"][0]
+        self.assertEqual(meja2["active"], 0)
+        # diaktifkan lagi -> terbuka kembali untuk pelanggan
+        self.assertEqual(owner.call("PUT", f"/api/tables/{meja['id']}", {"active": True})[0], 200)
+        self.assertEqual(anon.call("GET", f"/api/public/menu?t={tok}")[0], 200)
+        # jejak audit mencatat perubahan status
+        audit = owner.call("GET", "/api/audit?limit=50")[1]["items"]
+        self.assertTrue(any("ubah_meja" in (a.get("action") or "") and "aktif=" in (a.get("detail") or "") for a in audit))
+
+
 if __name__ == "__main__":
     unittest.main()

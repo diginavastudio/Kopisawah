@@ -2,7 +2,7 @@
  * Hanya menyimpan berkas tampilan (HTML/CSS/JS/gambar/klip suara). Data (API) TIDAK pernah disimpan di sini. */
 const VER = 'ks-shell-v2';
 const AUDIO = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'];
-for (let i = 1; i <= 10; i++) AUDIO.push('meja_' + i);
+for (let i = 1; i <= 50; i++) AUDIO.push('meja_' + i);
 const SHELL = ['/', '/manifest.webmanifest', '/static/app.css', '/static/app.js', '/static/vendor/qrcode.js',
   '/static/images/logo-badge.png', '/static/images/icon-192.png', '/static/images/icon-512.png', '/static/images/apple-touch-icon.png']
   .concat(AUDIO.map(n => '/static/audio/' + n + '.mp3'));

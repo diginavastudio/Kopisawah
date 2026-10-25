@@ -622,3 +622,35 @@ Konsistensi nada antar klip: F0 median 198–216 Hz (satu permintaan = satu warn
 
 **Cadangan klip lama:** `/root/backup-kopi-sawah/audio-gadis-20261025/` (14 berkas).
 **Tugas Gemini ditunda:** cron `ef82d6e13d21` di-*pause*, tidak akan menimpa suara Grok tanpa izin.
+
+## 49. Siap 50 meja, tombol Aktif per meja, perbandingan suara perempuan (25 Oktober 2026)
+
+**Permintaan pemilik:** (a) perbandingan suara perempuan, (b) rencana 50 meja, (c) tombol **Aktif**
+di layar *Meja & QR* — saat diaktifkan meja terbuka untuk pelanggan.
+
+**(a) Perbandingan suara** — berkas `perbandingan-suara-perempuan.mp3` (folder kerja Digi):
+Grok `ara` (terpasang), Grok `eve`, Gadis (edge), Gemini `Kore`, Grok `sal` (laki-laki),
+Gemini `Leda`. Semua mengucapkan kalimat yang sama.
+
+**(b) 50 meja**
+- 54 klip suara: `meja_1` … `meja_50` + 4 kalimat, satu permintaan Grok (`bundel_xai50.py`),
+  dipotong di jeda senyap (54/54 tepat), total **450 KB**.
+- `app.js`: batas nomor meja **1–50** (di luar itu cukup bel). `sw.js`: 54 klip masuk cache offline.
+- Meja di database masih **10**; menambah sampai 50 lewat **Kelola → Meja & QR → + Tambah banyak meja**
+  (awalan `Meja`, mulai `11`, jumlah `40`).
+
+**(c) Tombol Aktif / Tutup per meja**
+- Setiap baris meja kini punya dua tombol: **▶ Aktifkan** (meja nonaktif) dan **⏸ Tutup** (meja aktif),
+  plus tombol **QR**. Ada baris "Meja terbuka: X dari Y".
+- Menutup meja memakai konfirmasi dan menyebut jumlah pesanan yang masih berjalan di meja itu.
+- Backend **tidak diubah** — `PUT /api/tables/<id>` dan gerbang `active=1` sudah ada; jadi tidak perlu
+  restart layanan. Pelanggan yang memindai QR meja tertutup mendapat pesan "QR ini tidak dikenali,
+  minta bantuan pelayan" (meski begitu lebih tepat bila nanti dibedakan "meja sedang ditutup" —
+  perlu ubah `app.py`, artinya perlu restart; menunggu izin pemilik).
+
+**Hasil uji**
+- Uji API: **22/22 lulus** (termasuk `test_22` baru: meja aktif → menu pelanggan 200; ditutup → 404;
+  diaktifkan lagi → 200; kasir ditolak 403; jejak audit `ubah_meja` tercatat).
+- `tests/browser_meja_aktif.js` (**baru**): **12/12 lulus** (tombol tampil, konfirmasi muncul,
+  status server berubah, label & hitungan ikut berubah, menu pelanggan 404 lalu 200).
+- `tests/browser_suara.js`: **9/9 lulus** dengan 54 klip.
