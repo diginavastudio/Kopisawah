@@ -669,3 +669,24 @@ Klip `ara` disimpan di folder kerja `mentah50_ara/` bila ingin dikembalikan.
 
 **Suara yang tersedia di Grok (diuji satu per satu):** `ara`, `eve`, `sal`, `leo`, `rex`, `una`, `luna`.
 Nama lain (`sol`, `nova`, `iria`, `zoe`, `aria`, `mia`, `kai`) **tidak ada** (HTTP 404 "Voice not found").
+
+## 51. Suara Gemini Kore untuk 50 meja + PDF kartu QR (25 Oktober 2026)
+
+**(a) Suara Kore terpasang.** Kuota Gemini ternyata sudah tersedia lebih awal; `bundel_gemini50.py`
+berhasil pada percobaan pertama:
+- **Satu** permintaan TTS berisi **54 kalimat** (1.040 karakter), audio hasilnya dipotong di jeda
+  senyap dengan ambang −35 dB → **54/54 potongan tepat** (tidak perlu mode cadangan dua permintaan).
+- Pemeriksaan kewajaran: potongan pertama 1,25 s dan terpanjang 2,29 s — tidak ada instruksi gaya
+  yang ikut terbaca.
+- Terpasang **54 klip, 545 KB** (diolah sama: −18 dB, mp3 48 kbps mono). Uji layar suara **9/9 lulus**,
+  uji API **22/22 lulus**.
+- Model `gemini-2.5-flash-preview-tts`, voice `Kore`. Skrip: `bundel_gemini50.py` (folder kerja Digi)
+  + `/root/.hermes/scripts/kopi-suara-gemini.sh` (aman: kalau gagal, klip lama tidak disentuh —
+  sudah diuji dengan paksa gagal).
+- Tugas cron Gemini (`ef82d6e13d21`) **dihapus** karena tujuannya sudah tercapai lebih awal.
+
+**(b) PDF kartu QR 50 meja.** Alat baru `tools/qr_pdf.js` membuka situs produksi, membaca daftar meja
+dari `/api/tables`, membuat QR memakai fungsi QR aplikasi sendiri (`qrSVG`), lalu mencetak **A4,
+2×3 kartu per halaman, 9 halaman** (50 kartu). Berkas contoh: `kartu-qr-50-meja.pdf` (2,0 MB) —
+diperiksa visual: tiap kartu memuat logo, judul, QR utuh, nama meja, petunjuk, dan URL.
+Jalankan ulang: `NODE_PATH=/opt/node-tools/node_modules CHROME_PATH=/opt/chromium/chrome-linux64/chrome node tools/qr_pdf.js <keluaran.pdf>`.
