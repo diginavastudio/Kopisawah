@@ -29,23 +29,27 @@ const KLIP = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'].concat(Array.f
   const ok = (nama, lulus, extra = '') => hasil.push([lulus ? 'LULUS' : 'GAGAL', nama, extra]);
   try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'id-ID' });
-    // Tiruan pemutar audio: mencatat klip yang diminta lalu langsung "selesai".
+    // Tiruan Web Audio: pemutaran dibuat selesai seketika, tanpa perangkat suara.
     await ctx.addInitScript(() => {
-      window.__diputar = [];
-      window.Audio = class {
-        constructor() { this._src = ''; this.onended = null; this.onerror = null; }
-        set src(v) { this._src = v; window.__diputar.push(String(v).split('/static/audio/')[1] || String(v)); setTimeout(() => { if (this.onended) this.onended(); }, 20); }
-        get src() { return this._src; }
-        play() { return Promise.resolve(); }
-        pause() { }
+      window.AudioContext = class {
+        constructor() { this.state = 'running'; this.currentTime = 0; this.destination = {}; }
+        resume() { return Promise.resolve(); }
+        decodeAudioData(buf, ok) { const b = { duration: 0.05 }; if (ok) setTimeout(() => ok(b), 0); return Promise.resolve(b); }
+        createBufferSource() { return { buffer: null, connect() { }, onended: null, start() { setTimeout(() => { if (this.onended) this.onended(); }, 8); }, stop() { } }; }
+        createGain() { return { gain: { value: 1 }, connect() { } }; }
+        createOscillator() { return { frequency: { value: 0 }, connect() { }, start() { }, stop() { } }; }
       };
+      window.webkitAudioContext = window.AudioContext;
     });
     const page = await ctx.newPage();
     page.on('pageerror', e => galat.push('pageerror: ' + e.message));
     page.on('console', m => { if (m.type() === 'error' && !/audio|Media/i.test(m.text())) galat.push('console: ' + m.text()); });
     const tunggu = ms => new Promise(r => setTimeout(r, ms));
-    const diputar = () => page.evaluate(() => { const d = window.__diputar.slice(); window.__diputar.length = 0; return d; });
-    const bersih = () => page.evaluate(() => { window.__diputar.length = 0; if (typeof voiceAntre !== 'undefined') { voiceAntre.length = 0; voiceJalan = false; } });
+    let diminta = [];                                     // klip yang benar-benar diminta ke server
+    page.on('request', r => { const u = r.url(); if (u.includes('/static/audio/')) diminta.push(u.split('/static/audio/')[1]); });
+    const mulaiCatat = () => { diminta = []; };
+    const diputar = async () => { const d = diminta.slice(); diminta = []; return d.filter(x => x && x.endsWith('.mp3')); };
+    const bersih = async () => { mulaiCatat(); await page.evaluate(() => { if (typeof voiceAntre !== 'undefined') { voiceAntre.length = 0; voiceJalan = false; } }); };
 
     await page.goto(base);
     await page.waitForSelector('#f');

@@ -690,3 +690,30 @@ dari `/api/tables`, membuat QR memakai fungsi QR aplikasi sendiri (`qrSVG`), lal
 2×3 kartu per halaman, 9 halaman** (50 kartu). Berkas contoh: `kartu-qr-50-meja.pdf` (2,0 MB) —
 diperiksa visual: tiap kartu memuat logo, judul, QR utuh, nama meja, petunjuk, dan URL.
 Jalankan ulang: `NODE_PATH=/opt/node-tools/node_modules CHROME_PATH=/opt/chromium/chrome-linux64/chrome node tools/qr_pdf.js <keluaran.pdf>`.
+
+## 52. Perbaikan "kata awal terpotong / tidak jelas" pada pengumuman suara (25 Oktober 2026)
+
+**Keluhan pemilik:** saat ada pesanan baru, panggil pelayan, dan minta bill, kata pertama terpotong
+dan tidak jelas.
+
+**Penyebab yang ditemukan (bukan dugaan):**
+1. **Klip terlalu banyak hening di depan.** Saat memotong audio panjang, batas potong diambil di
+   tengah jeda, sehingga tiap klip membawa **0,5–0,8 detik hening** di awal. Pada `kepala_pesan`
+   bahkan ada ~0,64 detik desis/nafas level rendah sebelum kata "Ada". Terdengar seperti kata pertama
+   hilang, lalu suara muncul tiba-tiba.
+2. **Pemutaran per berkas lewat elemen `<audio>`.** MP3 punya *encoder delay* ±25–50 ms dan setiap
+   ganti berkas browser menyiapkan ulang pemutar — awal berkas berikutnya bisa terpotong.
+
+**Perbaikan:**
+- Potongan ulang berbasis hitungan sampel: awal kata dideteksi pada **puncak ≥6%** (bukan 1,2% yang
+  ikut menangkap desis), lalu disisakan **100 ms** sebelum kata dan **120 ms** hening penutup.
+  Fade-in 30 ms, fade-out 40 ms. **Kepala_pesan: kata pertama kini mulai 120 ms** (sebelumnya 788 ms);
+  klip lain 100–120 ms.
+- Encode **80 kbps 44,1 kHz mono** (sebelumnya 48 kbps 24 kHz) — konsonan lebih jelas.
+- `static/app.js`: pemutaran tidak lagi memakai `<audio>`, tetapi **Web Audio**
+  (`fetch → decodeAudioData → AudioBufferSourceNode`) dengan cache di memori. Sambungan klip jadi
+  sampel-akurat, tanpa *encoder delay*, dengan jeda 200 ms antar klip. Klip yang gagal diunduh
+  dilewati (bel tetap berbunyi) dan tidak disimpan di cache supaya bisa dicoba lagi.
+
+**Hasil:** 54 klip, **667 KB**; uji API **22/22**, uji layar suara **9/9**.
+Berkas contoh sebelum/sesudah ada di folder kerja Digi (`demo-suara-kore-diperbaiki.mp3`).

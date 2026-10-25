@@ -1103,18 +1103,36 @@ function voiceSeq(jenis, nomor) {
   if (jenis === 'tes') return [VOICE_DIR + 'tes.mp3'];
   return [];
 }
-function putarKlip(daftar, selesai) {
-  let i = 0;
-  const a = new Audio();
-  a.preload = 'auto';
-  const lanjut = () => {
-    if (i >= daftar.length) { selesai(); return; }
-    a.src = daftar[i++];
-    a.onended = lanjut;
-    a.onerror = lanjut;                                  // klip belum terunduh: lewati, jangan gagal total
-    try { const p = a.play(); if (p && p.catch) p.catch(() => lanjut()); } catch { lanjut(); }
-  };
-  lanjut();
+const voiceCache = new Map();                            // url -> Promise<AudioBuffer>
+function voiceDecode(url) {
+  if (voiceCache.has(url)) return voiceCache.get(url);
+  const p = fetch(url)
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+    .then(buf => new Promise((res, rej) => actx.decodeAudioData(buf, res, rej)))
+    .catch(() => { voiceCache.delete(url); return null; });   // gagal: jangan disimpan, coba lagi nanti
+  voiceCache.set(url, p);
+  return p;
+}
+async function putarKlip(daftar, selesai) {
+  try {
+    if (!actx) return;
+    if (actx.state === 'suspended') { try { await actx.resume(); } catch { /* biarkan */ } }
+    for (const url of daftar) {
+      const buf = await voiceDecode(url);
+      if (!buf) continue;                                // klip belum ada / gagal unduh: lewati
+      await new Promise(res => {
+        const src = actx.createBufferSource(), g = actx.createGain();
+        g.gain.value = 1;
+        src.buffer = buf;
+        src.connect(g); g.connect(actx.destination);
+        src.onended = res;
+        src.start();
+      });
+      await new Promise(r => setTimeout(r, 200));        // jeda pendek antar klip
+    }
+  } finally {
+    selesai();
+  }
 }
 function jalanSuara() {
   if (voiceJalan || !voiceAntre.length) return;
@@ -1149,6 +1167,7 @@ function hangatkanSuara() {                              // simpan klip di cache
   const daftar = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'];
   for (let n = 1; n <= 50; n++) daftar.push('meja_' + n);
   daftar.forEach(n => fetch(VOICE_DIR + n + '.mp3').catch(() => { }));
+  if (actx) daftar.slice(0, 4).forEach(n => voiceDecode(VOICE_DIR + n + '.mp3').catch(() => { }));  // kalimat disiapkan lebih awal
 }
 function ticketOf(o) { return { id: o.id, order_type: 'dine_in', table_no: o.table_label + (o.customer_name ? ' · ' + o.customer_name : ''), created_at: o.created_at, items: o.items, note: o.note }; }
 const mejaMode = () => ls.get('ks_mejamode') === 'dapur' ? 'dapur' : 'meja';
