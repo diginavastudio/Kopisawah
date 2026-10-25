@@ -654,3 +654,18 @@ Gemini `Leda`. Semua mengucapkan kalimat yang sama.
 - `tests/browser_meja_aktif.js` (**baru**): **12/12 lulus** (tombol tampil, konfirmasi muncul,
   status server berubah, label & hitungan ikut berubah, menu pelanggan 404 lalu 200).
 - `tests/browser_suara.js`: **9/9 lulus** dengan 54 klip.
+
+## 50. 40 meja baru (Meja 11–50) + suara diganti ke Grok `una` (25 Oktober 2026)
+
+**(a) Meja 11–50 dibuat** lewat API aplikasi sendiri (`POST /api/tables {"prefix":"Meja","start":11,"count":40}`),
+jadi tercatat di audit (`tambah_meja`, 18:00 WIB, oleh pengguna `Kasir` karena login dimatikan).
+- Cadangan DB sebelum perubahan: `/root/backup-kopi-sawah/kopi-sawah-20261025-1100.sqlite3`.
+- Hasil: **50 meja**, semuanya aktif, nomor 1–50 **tanpa celah**.
+- Diperiksa: QR `Meja 11` dan `Meja 50` → `/m/<token>` **HTTP 200**, `/api/public/menu?t=…` **HTTP 200**.
+
+**(b) Suara diganti ke Grok `una`** — paling dekat dengan Gemini Kore (nada dasar 193 Hz vs Kore 189 Hz).
+54 klip dibuat dari satu permintaan + dipotong (54/54), total **475 KB**. `tests/browser_suara.js` **9/9 lulus**.
+Klip `ara` disimpan di folder kerja `mentah50_ara/` bila ingin dikembalikan.
+
+**Suara yang tersedia di Grok (diuji satu per satu):** `ara`, `eve`, `sal`, `leo`, `rex`, `una`, `luna`.
+Nama lain (`sol`, `nova`, `iria`, `zoe`, `aria`, `mia`, `kai`) **tidak ada** (HTTP 404 "Voice not found").
