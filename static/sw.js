@@ -1,8 +1,11 @@
 /* Service worker Kopi Sawah: membuat aplikasi kasir tetap bisa DIBUKA saat internet putus.
- * Hanya menyimpan berkas tampilan (HTML/CSS/JS/gambar). Data (API) TIDAK pernah disimpan di sini. */
-const VER = 'ks-shell-v1';
+ * Hanya menyimpan berkas tampilan (HTML/CSS/JS/gambar/klip suara). Data (API) TIDAK pernah disimpan di sini. */
+const VER = 'ks-shell-v2';
+const AUDIO = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'];
+for (let i = 1; i <= 10; i++) AUDIO.push('meja_' + i);
 const SHELL = ['/', '/manifest.webmanifest', '/static/app.css', '/static/app.js', '/static/vendor/qrcode.js',
-  '/static/images/logo-badge.png', '/static/images/icon-192.png', '/static/images/icon-512.png', '/static/images/apple-touch-icon.png'];
+  '/static/images/logo-badge.png', '/static/images/icon-192.png', '/static/images/icon-512.png', '/static/images/apple-touch-icon.png']
+  .concat(AUDIO.map(n => '/static/audio/' + n + '.mp3'));
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VER).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -16,7 +19,8 @@ self.addEventListener('fetch', e => {
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/m/')) return;      // data & halaman pelanggan: selalu lewat jaringan
   const isShell = url.pathname === '/' || url.pathname === '/index.html';
   const isImage = /\.(jpg|jpeg|png|webp)$/i.test(url.pathname);
-  if (isImage) {            // gambar: cache dulu (jarang berubah)
+  const isAudio = /^\/static\/audio\/[a-z0-9_]+\.mp3$/.test(url.pathname);
+  if (isImage || isAudio) {  // gambar & klip suara: cache dulu (jarang berubah) supaya tetap ada saat offline
     e.respondWith(caches.open(VER).then(async c => { const hit = await c.match(req); if (hit) return hit; const res = await fetch(req); if (res.ok) c.put(req, res.clone()); return res; }));
   } else if (isShell || url.pathname.startsWith('/static/')) {     // kode: jaringan dulu supaya selalu versi terbaru, cache sebagai cadangan
     e.respondWith(fetch(req).then(res => { if (res.ok) caches.open(VER).then(c => c.put(isShell ? '/' : req, res.clone())); return res; })

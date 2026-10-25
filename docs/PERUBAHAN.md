@@ -558,3 +558,47 @@ harus **dipasang ulang** (dua baris di `static/app.js`):
   tidak tercatat. Pemulihan: `mount -o remount,rw /` lalu uji tulis. Berkas aplikasi **tidak rusak**
   (tambalan gagal di tahap tulis dan diulang setelah mount normal). Perlu dipantau: kejadian berulang
   menandakan masalah I/O host, bukan kode aplikasi.
+
+## 46. Pengumuman suara untuk pesanan QR & panggilan meja (25 Oktober 2026)
+
+**Permintaan pemilik:** selain bel, kasir mengumumkan dengan suara manusia, mis.
+"Ada pesanan baru dari Meja tujuh". Bel yang lama tetap dipakai. Suara terpilih: **Gemini
+(Kore)** — tetapi kuota gratis Gemini TTS hanya **10 permintaan/hari per model** dan sudah
+habis saat pengerjaan, jadi untuk sementara dipasang klip suara **Gadis** (edge-tts) yang
+sudah lolos uji. Penggantian ke Kore dijadwalkan otomatis (lihat bagian 47).
+
+**Yang berubah**
+- `static/audio/` (**baru**) — 14 klip mp3, 48 kbps mono 24 kHz, total **155 KB**:
+  `kepala_pesan`, `ekor_panggil`, `ekor_bill`, `tes`, dan `meja_1` … `meja_10`
+  ("Meja satu" … "Meja sepuluh"). Semua klip dinormalkan ke **−18 dB** dan diberi
+  *highpass* 110 Hz + *kompresor* + penguat kejelasan 3 kHz supaya tidak menonjol saat disambung.
+- `static/app.js` — modul pengumuman: `voiceSeq()`, `putarKlip()`, `antreSuara()`,
+  `suaraDariServer()`, `hangatkanSuara()`.
+  · Bel lama (`beep()`) **tidak diubah**; suara menyusul 420 ms setelah bel.
+  · Urutan klip: pesan = `kepala_pesan`+`meja_N`; panggil = `meja_N`+`ekor_panggil`;
+    bill = `meja_N`+`ekor_bill`; tes = `tes`.
+  · Antrean maksimal **3** pengumuman (yang terlama dilepas), pengumuman sama tidak diulang,
+    meja di luar 1–10 hanya berbunyi bel. Klip gagal diunduh → dilewati, bel tetap berbunyi.
+  · `soundToggle` memutar klip `tes` saat suara dinyalakan dan menghangatkan cache klip.
+- `static/sw.js` — `VER` menjadi `ks-shell-v2`; klip suara masuk `SHELL` (tersedia offline)
+  dan dilayani *cache-first* seperti gambar.
+- `tests/browser_suara.js` (**baru**) — 9 pemeriksaan.
+
+**Hasil uji**
+- `python3 -m unittest discover -s tests` → **21/21 lulus**.
+- `node tests/browser_suara.js` → **9/9 lulus** (14 klip HTTP 200; urutan klip pesan/panggil/bill;
+  meja 11 tanpa klip; dobel tidak diulang; antrean ≤ 3; suara mati tidak memutar; tanpa galat JS).
+- Pemutaran audio di uji diganti tiruan — Chromium tanpa perangkat suara menggantung bila
+  memutar audio sungguhan. Berkas klip tetap diambil sungguhan (fetch) pada uji pertama.
+
+**Cara kembali (rollback)**
+- `git checkout -- static/app.js static/sw.js` lalu `git clean -fd static/audio tests/browser_suara.js`.
+- Tidak ada perubahan database, tidak ada restart layanan (berkas statis dibaca dari disk tiap permintaan).
+
+## 47. Menunggu: penggantian klip ke suara Gemini Kore
+- Skrip: `/root/.hermes/scripts/kopi-suara-gemini.sh` + `bundel_sekali.py` (folder kerja
+  `/root/.hermes/cache/scratch/kopi-voice/`).
+- Cara kerja: **satu** permintaan TTS berisi 14 kalimat → dipotong di jeda senyap → 14 klip.
+  Satu permintaan dipilih supaya nada suara antar klip tidak bergeser dan kuota tidak habis.
+- Terjadwal sekali: **26 Oktober 2026 08:00 UTC (15:00 WIB)**, hasil dilaporkan ke Telegram pemilik.
+  Bila kuota masih habis, skrip berhenti dan **tidak menyentuh klip yang sudah ada**.

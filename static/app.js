@@ -1082,6 +1082,74 @@ function beep() {
   if (ls.get('ks_sound') === '0' || !actx) return;
   [0, 0.22].forEach(t => { try { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = t ? 1175 : 880; g.gain.value = 0.18; o.connect(g); g.connect(actx.destination); o.start(actx.currentTime + t); o.stop(actx.currentTime + t + 0.16); } catch { /* abaikan */ } });
 }
+
+/* --- Pengumuman suara: klip rekaman yang dibundel di /static/audio (tetap jalan tanpa internet).
+ * Bel tetap bunyi lama; suara menyusul setelah bel. Nomor meja disambung dari klip "Meja N". --- */
+const VOICE_DIR = '/static/audio/';
+const VOICE_MAKS = 3;               // maksimal 3 pengumuman menunggu; sisanya dilepas (layar tetap menampilkan)
+const VOICE_DIAM = 2;               // hari ini: pengumuman sama dalam 2 detik tidak diulang
+let voiceAntre = [], voiceJalan = false;
+const voiceAktif = () => ls.get('ks_sound') !== '0';
+function nomorMeja(label) {
+  const m = String(label || '').match(/(\d{1,2})\s*$/);
+  const n = m ? parseInt(m[1], 10) : 0;
+  return n >= 1 && n <= 10 ? n : 0;                       // klip angka tersedia 1..10 (meja yang ada)
+}
+function voiceSeq(jenis, nomor) {
+  const nm = nomor ? VOICE_DIR + 'meja_' + nomor + '.mp3' : '';
+  if (jenis === 'pesan') return nm ? [VOICE_DIR + 'kepala_pesan.mp3', nm] : [];
+  if (jenis === 'panggil') return nm ? [nm, VOICE_DIR + 'ekor_panggil.mp3'] : [];
+  if (jenis === 'bill') return nm ? [nm, VOICE_DIR + 'ekor_bill.mp3'] : [];
+  if (jenis === 'tes') return [VOICE_DIR + 'tes.mp3'];
+  return [];
+}
+function putarKlip(daftar, selesai) {
+  let i = 0;
+  const a = new Audio();
+  a.preload = 'auto';
+  const lanjut = () => {
+    if (i >= daftar.length) { selesai(); return; }
+    a.src = daftar[i++];
+    a.onended = lanjut;
+    a.onerror = lanjut;                                  // klip belum terunduh: lewati, jangan gagal total
+    try { const p = a.play(); if (p && p.catch) p.catch(() => lanjut()); } catch { lanjut(); }
+  };
+  lanjut();
+}
+function jalanSuara() {
+  if (voiceJalan || !voiceAntre.length) return;
+  voiceJalan = true;
+  const { seq } = voiceAntre.shift();
+  setTimeout(() => putarKlip(seq, () => { voiceJalan = false; jalanSuara(); }), 420);
+}
+function antreSuara(jenis, label) {
+  if (!voiceAktif()) return;
+  const seq = voiceSeq(jenis, nomorMeja(label));
+  if (!seq.length) return;                               // meja di luar 1..10: cukup bel saja
+  const kunci = jenis + '|' + (nomorMeja(label) || 0);
+  const antre = voiceAntre;
+  if (antre.some(p => p.kunci === kunci)) return;
+  if (antre.length >= VOICE_MAKS) antre.shift();
+  antre.push({ kunci, seq, at: Date.now() });
+  jalanSuara();
+}
+async function suaraDariServer(pesananBaru, panggilanBaru) {
+  if (!voiceAktif() || (!pesananBaru && !panggilanBaru)) return;
+  let d; try { d = await api('/api/orders'); } catch { return; }
+  if (pesananBaru) {
+    const o = (d.orders || []).filter(x => x.status === 'pending').sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+    if (o) antreSuara('pesan', o.table_label);
+  }
+  if (panggilanBaru) {
+    const c = (d.calls || [])[0];
+    if (c) antreSuara(c.kind === 'bill' ? 'bill' : 'panggil', c.table_label);
+  }
+}
+function hangatkanSuara() {                              // simpan klip di cache browser agar siap saat internet putus
+  const daftar = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'];
+  for (let n = 1; n <= 10; n++) daftar.push('meja_' + n);
+  daftar.forEach(n => fetch(VOICE_DIR + n + '.mp3').catch(() => { }));
+}
 function ticketOf(o) { return { id: o.id, order_type: 'dine_in', table_no: o.table_label + (o.customer_name ? ' · ' + o.customer_name : ''), created_at: o.created_at, items: o.items, note: o.note }; }
 const mejaMode = () => ls.get('ks_mejamode') === 'dapur' ? 'dapur' : 'meja';
 const minsAgo = iso => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -1122,7 +1190,7 @@ async function viewMeja() {
         return `<div class="card" style="margin-bottom:14px"><div class="row between wrap" style="margin-bottom:8px"><div><h3 style="margin:0">${esc(label)}</h3><div class="small muted">${list.length} pesanan${waiting ? ` · <b>${waiting} menunggu konfirmasi</b>` : ''}</div></div>
           <div class="row wrap"><button class="btn ghost sm" data-act="moveTable" data-t="${esc(label)}">⇄ Pindah / gabung meja</button><button class="btn gold" data-act="payTable" data-t="${esc(label)}" ${payable.length ? '' : 'disabled'}>Bayar meja · ${rp(due)}</button></div></div>
           ${list.map(o => orderCard(o, false)).join('')}</div>`;
-      }).join('') : `<div class="card"><div class="empty">Belum ada pesanan dari meja.<br><span class="small">Pesanan baru akan muncul di sini otomatis dan berbunyi.${isOwner() ? ' Pasang QR di meja lewat <b>⚙ Atur meja & QR</b>.' : ''}</span></div></div>`);
+      }).join('') : `<div class="card"><div class="empty">Belum ada pesanan dari meja.<br><span class="small">Pesanan baru akan muncul di sini otomatis, berbunyi bel lalu diumumkan dengan suara.${isOwner() ? ' Pasang QR di meja lewat <b>⚙ Atur meja & QR</b>.' : ''}</span></div></div>`);
   }
   $('#main').innerHTML = head(mode === 'dapur' ? 'Papan Dapur' : 'Pesanan Meja', mode === 'dapur' ? 'Pesanan yang sudah diterima. Ketuk <b>Siap</b> bila sudah selesai dimasak.' : 'Pesanan dari QR di meja. Terima dulu, lalu bayar di kasir saat pelanggan selesai.', right)
     + (strip ? `<div class="tstrip" aria-label="Status meja">${strip}</div>` : '') + body;
@@ -1137,7 +1205,11 @@ async function pollOrders() {
     if (sumPrev) {
       const newOrder = s.latest_pending && s.latest_pending > (sumPrev.latest_pending || '');
       const newCall = s.latest_call && s.latest_call > (sumPrev.latest_call || 0);
-      if (newOrder || newCall) { beep(); toast(newOrder ? 'Pesanan baru dari meja!' : 'Meja memanggil Anda', 'ok'); }
+      if (newOrder || newCall) {
+        beep();                                              // bel lama tetap berbunyi
+        toast(newOrder ? 'Pesanan baru dari meja!' : 'Meja memanggil Anda', 'ok');
+        suaraDariServer(newOrder, newCall);                  // lalu pengumuman suara (kalau aktif)
+      }
       const changed = ['pending', 'calls', 'active', 'latest_pending', 'latest_call'].some(k => s[k] !== sumPrev[k]);
       if (changed && state.view === 'meja' && !state.sheets.length) viewMeja().catch(() => { });
     }
@@ -1250,7 +1322,12 @@ const ACT = {
   qrisDelete: async () => { if (!await confirmSheet({ title: 'Hapus gambar QRIS?', text: 'Pelanggan tidak akan melihat tombol bayar QRIS lagi.', ok: 'Ya, hapus', danger: true })) return; try { await api('/api/settings/qris', { method: 'DELETE' }); toast('Gambar QRIS dihapus', 'ok'); SUBVIEWS.atur(); } catch (e) { toast(e.message, 'bad'); } },
   backupNow: async el => { el.disabled = true; try { await api('/api/admin/backups/run', { method: 'POST' }); toast('Cadangan dibuat', 'ok'); SUBVIEWS.atur(); } catch (e) { toast(e.message, 'bad'); el.disabled = false; } },
   quickPhoto: () => loadProducts(true).then(() => quickPhotoSheet()),
-  soundToggle: () => { ls.set('ks_sound', ls.get('ks_sound') === '0' ? '1' : '0'); if (ls.get('ks_sound') !== '0') beep(); viewMeja(); },
+  soundToggle: () => {
+    const nyala = ls.get('ks_sound') === '0';
+    ls.set('ks_sound', nyala ? '1' : '0');
+    if (nyala) { beep(); antreSuara('tes', ''); hangatkanSuara(); }
+    viewMeja();
+  },
   orderStatus: async el => { try { await api(`/api/orders/${encodeURIComponent(el.dataset.id)}/status`, { method: 'POST', body: { status: el.dataset.s } }); if (el.dataset.s === 'accepted') { const o = state.mejaData.orders.find(x => x.id === el.dataset.id); toast('Pesanan diterima. Cetak tiket dapur bila perlu.', 'ok'); } viewMeja(); pollOrders(); } catch (e) { toast(e.message, 'bad'); viewMeja(); } },
   orderReason: el => formSheet({ title: el.dataset.s === 'rejected' ? 'Tolak pesanan' : 'Batalkan pesanan', intro: 'Alasan akan terlihat oleh pelanggan di halaman pesannya.', fields: [{ name: 'reason', label: 'Alasan', maxlength: 160, placeholder: 'mis. menu habis / dapur tutup' }], submit: el.dataset.s === 'rejected' ? 'Tolak pesanan' : 'Batalkan pesanan', danger: true, onSubmit: async (v, f) => { if (!v.reason) throw new Error('Isi alasannya dulu.'); await api(`/api/orders/${encodeURIComponent(el.dataset.id)}/status`, { method: 'POST', body: { status: el.dataset.s, reason: v.reason } }); f.close(); viewMeja(); pollOrders(); } }),
   ticketOrder: el => { const o = state.mejaData.orders.find(x => x.id === el.dataset.id); if (o) printHTML(ticketHTML(ticketOf(o))); },
