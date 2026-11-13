@@ -70,6 +70,9 @@ main{max-width:2000px;margin:0 auto;padding:18px clamp(12px,2vw,36px) 90px}
 textarea.field{min-height:76px;resize:vertical}
 label.lbl{display:block;font-weight:600;margin-bottom:6px;font-size:15px}
 .hint{color:var(--muted);font-size:13.5px;margin-top:5px}
+/* kotak saran draf pada formulir menu */
+.saran-box{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;background:var(--primary-soft);border:1px solid #c9d3ab;border-radius:10px;padding:8px 10px;margin-top:8px;font-size:13px;color:#3a4a14}
+.saran-box .saran-teks{flex:1;line-height:1.35}
 .form-row{margin-bottom:14px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .seg{display:flex;gap:6px;flex-wrap:wrap}
@@ -153,6 +156,16 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .opt.multi.on .box::after{border-radius:2px}
 .opt .pl{margin-left:auto;color:var(--gold-ink);font-weight:700}
 .pay-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+/* metode pemesanan: bayar langsung / piutang / buat pesanan / gabungkan pesanan */
+.om-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.om{display:flex;flex-direction:column;gap:3px;text-align:left;background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:11px 14px;min-height:74px;color:var(--ink)}
+.om b{font-size:15.5px;line-height:1.25}
+.om span{font-size:12.8px;line-height:1.35;color:var(--muted)}
+.om:hover{background:var(--primary-soft);border-color:#b9c49a}
+.om.on{border-color:var(--primary);background:var(--primary-soft);box-shadow:inset 0 0 0 1px var(--primary)}
+.om.on b{color:var(--primary)}
+.om.on span{color:#4a5626}
+@media (max-width:520px){ .om-grid{grid-template-columns:1fr} }
 .quick{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .quick button{border:1.5px solid var(--line);background:#fff;border-radius:10px;min-height:42px;padding:6px 14px;font-weight:600}
 .quick button:hover{background:var(--primary-soft)}
@@ -162,11 +175,19 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 /* ---- lembar (modal) ---- */
 .scrim{position:fixed;inset:0;background:#1d221488;z-index:60;display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto}
 .sheet{background:#fff;border-radius:18px;width:min(560px,100%);max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);display:flex;flex-direction:column;box-shadow:0 20px 60px #0005}
+.sheet.cart-sheet-long{height:min(82vh,calc(100vh - 28px));height:min(82dvh,calc(100dvh - 28px))}
 .sheet.wide{width:min(760px,100%)}
 .sheet-h{padding:16px 18px 10px;display:flex;align-items:flex-start;gap:10px;justify-content:space-between}
 .sheet-h .x{border:0;background:#efece0;border-radius:50%;width:38px;height:38px;font-size:20px;line-height:1;flex:none}
-.sheet-b{padding:4px 18px 10px;overflow:auto}
+.sheet-b{padding:4px 18px 18px;overflow:auto}
+.sheet-b.cart-sheet-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:hidden;padding:0 18px 4px}
+.sheet-b.cart-sheet-body>h3{flex:none;margin:12px 0 8px}
+.sheet-b.cart-sheet-body .cart-lines{flex:1 1 0!important;min-height:0;overflow:auto;margin:0 -4px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.sheet:not(.cart-sheet-long) .sheet-b.cart-sheet-body .cart-lines{flex:0 0 auto!important}
 .sheet-f{padding:12px 18px 16px;display:flex;gap:10px;border-top:1px solid var(--line2)}
+.sheet-f.cart-sheet-footer{display:block;flex:none;padding:10px 18px 16px}
+.sheet-f.cart-sheet-footer .sumrows{margin-bottom:10px}
+.sheet-f.cart-sheet-footer .btn{width:100%;flex:none}
 .sheet-f .btn{flex:1}
 .toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:#222;color:#fff;border-radius:12px;padding:12px 18px;z-index:99;max-width:90vw;font-weight:600;box-shadow:0 8px 24px #0004}
 .toast.bad{background:var(--bad)} .toast.ok{background:var(--ok)}
@@ -196,6 +217,9 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .receipt hr{border:0;border-top:1px dashed #000;margin:6px 0}
 .receipt .l{display:flex;justify-content:space-between;gap:8px}
 .receipt .b{font-weight:700;font-size:14px}
+/* batas stasiun dapur pada tiket: MAKANAN / MINUMAN / CAMILAN */
+.receipt .station{font-weight:800;text-align:center;letter-spacing:.6px;border-top:2px dashed #000;border-bottom:2px dashed #000;padding:3px 0;margin:9px 0 6px}
+.receipt .station:first-of-type{margin-top:0}
 .receipt-preview{background:#fff;border:1px dashed #b9b39c;border-radius:10px;padding:14px;max-width:300px;margin:0 auto}
 .receipt-preview.w80{max-width:380px}
 
@@ -219,6 +243,10 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   #cats button{flex:none}
   .scrim{align-items:flex-end;padding:0}
   .sheet{border-radius:18px 18px 0 0;width:100%;max-height:92vh;max-height:92dvh}
+  .sheet.cart-sheet-long{height:92vh;height:92dvh}
+  .sheet-b.cart-sheet-body{padding:0 14px 4px}
+  .sheet-b.cart-sheet-body>h3{margin:10px 0 7px}
+  .sheet-f.cart-sheet-footer{padding:9px 14px calc(12px + env(safe-area-inset-bottom))}
 }
 @media print{
   body *{visibility:hidden}

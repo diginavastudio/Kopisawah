@@ -80,7 +80,7 @@ daripada klaim satu vendor.
 | 7 | Kasir bershift (kas awal, tutup kasir, selisih) | ✅ | Versi sederhana (satu laci, X/Z digabung). |
 | 8 | Akun + peran + PIN + jejak | ✅ | Peran: Pemilik/Kasir. Belum: peran Barista, PIN-override pemilik untuk diskon/void di tempat. |
 | 9 | Loyalti (poin, stamp, tier) | ❌ | Perlu data pelanggan (nomor HP) → pertimbangkan aturan privasi data pribadi. |
-| 10 | Cetak struk thermal + tiket barista | ◐ | Via cetak browser 58/80 mm ✅. Belum cetak langsung ESC/POS/Bluetooth; **belum dicoba dengan printer asli**. |
+| 10 | Cetak struk thermal + tiket barista | ◐ | Cetak dialog sistem tetap tersedia. Jalur cetak langsung Android ditambahkan lewat bridge Cleanter untuk Bluetooth Classic/SPP ESC/POS, dengan target RPP02N. Perlu Cleanter dipasang dan dipilih di tablet. **Cetak fisik RPP02N belum diuji**; bukan dukungan BLE, iOS, atau Windows. |
 | 11 | Meja / QR self-order / status pesanan | ◐ | ✅ *(Ronde 4)* QR per meja, pesan dari HP, status menunggu→diproses→siap→disajikan, panggil pelayan/minta bill, bayar gabungan per meja. ❌ layar dapur (KDS) terpisah, pindah/gabung meja, split bill. |
 | 12 | Laporan per jam, terlaris, laba-rugi, per metode bayar | ◐ | Semua ✅ kecuali **laba-rugi penuh** (butuh biaya operasional: sewa, gaji, dll.). Ada ekspor CSV untuk akuntan. |
 | 13 | Multi-outlet & pesanan online (GoFood/GrabFood) | ❌ | Satu outlet. Integrasi online butuh akses API mitra; kemungkinan input manual dulu. |
@@ -101,7 +101,7 @@ daripada klaim satu vendor.
 | Alur layar di Chromium (`tests/browser_check.js`, 30+ pemeriksaan): kasir, bayar, struk, laporan, kas, **buat meja → QR terbaca pemindai independen (zxing-cpp) → pelanggan memesan lewat HP → kasir menerima/bayar meja → pelanggan melihat Selesai**, unggah foto, cetak QR, tampilan HP | Lulus, tanpa galat konsol | **Tiruan** |
 | Migrasi database lama (skema v2 dan v3) → kode baru: transaksi lama utuh, ubahan harga pemilik dipertahankan, katalog ditambal; **rollback** (kode lama membuka DB baru): membaca & menjual | Lulus | **Tiruan** (DB dibuat dengan kode lama) |
 | Server hidup `kopisawah.diginavastudio.com` | **Belum diuji** | — |
-| Printer termal, **printer A4 untuk kartu QR**, HP/tablet fisik, **scan QR dengan kamera HP sungguhan**, jaringan putus-nyambung | **Belum diuji** | — |
+| Printer termal RPP02N melalui Cleanter, **printer A4 untuk kartu QR**, HP/tablet fisik, **scan QR dengan kamera HP sungguhan**, jaringan putus-nyambung | **Belum diuji** | — |
 | Beban/konkurensi nyata, uji penetrasi | **Belum diuji** | — |
 
 ## 5. Cocokkan Menu Baru (PDF) dengan katalog

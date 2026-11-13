@@ -16,6 +16,7 @@ dibuat untuk pengguna awam (HP, tablet, atau laptop).
 | **Pesan lewat QR meja** | Tiap meja punya QR. Pelanggan scan → pilih menu (foto, deskripsi, pilihan) → kirim; kasir menerima (berbunyi), menandai siap/disajikan, lalu menerima bayar sekali untuk seluruh pesanan meja. Ada tombol *Panggil pelayan* / *Minta bill* |
 | **Kasir** | Cari/filter menu, varian berbayar (ukuran, gula, es, susu, extra shot, sambal), keranjang yang bertahan saat halaman dimuat ulang, jenis pesanan (makan di sini/bawa pulang), nomor meja, catatan |
 | **Pembayaran** | Tunai (uang diterima + kembalian + tombol uang pas), QRIS, kartu, e-wallet, transfer *(non-tunai hanya dicatat, belum terintegrasi payment gateway)* |
+| **Metode pemesanan** | Di layar Pembayaran: **Bayar Langsung** (nota lunas seperti biasa), **Piutang** dan **Buat Pesanan** (tagihan terbuka, belum masuk omzet), **Gabungkan Pesanan** (pesanan berikutnya pelanggan yang sama masuk ke tagihan yang sama → satu nota saat lunas). Tab **Tagihan** menampilkan tagihan terbuka + tombol bayar |
 | **Harga** | Diskon (% atau Rp, wajib alasan, batas untuk kasir diatur pemilik), biaya layanan, pajak, pembulatan — semua bawaan **0** |
 | **Kas bershift** | Buka kasir (uang awal) → tutup kasir (hitung uang, selisih, laporan tutup kasir yang bisa dicetak) |
 | **Struk & tiket** | Struk 58/80 mm dan tiket dapur lewat cetak browser |

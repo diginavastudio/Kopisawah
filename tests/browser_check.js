@@ -24,6 +24,19 @@ const CHROME = process.env.CHROME_PATH || undefined;
   try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'id-ID' });
     const page = await ctx.newPage();
+    const printerJobs = [];
+    await page.route('http://localhost:9100/**', async route => {
+      const req = route.request(), headers = {
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
+        'access-control-allow-headers': 'Content-Type, Accept',
+        'access-control-allow-private-network': 'true',
+      };
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers, body: '' });
+      if (req.url().endsWith('/health')) return route.fulfill({ status: 200, contentType: 'application/json', headers, body: JSON.stringify({ status: 'ok', printer: { connected: true, name: 'RPP02N' } }) });
+      printerJobs.push(req.postDataJSON());
+      return route.fulfill({ status: 200, contentType: 'application/json', headers, body: JSON.stringify({ status: 'printed', jobId: 'mock-job' }) });
+    });
     page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
     page.on('pageerror', e => errors.push('pageerror: ' + e.message));
     const shot = n => page.screenshot({ path: path.join(shots, n + '.png') });
@@ -63,12 +76,19 @@ const CHROME = process.env.CHROME_PATH || undefined;
     ok('kembalian tampil', (await page.textContent('#coChange')).includes('Kembalian'));
     await page.click('#coPayBtn'); await page.waitForSelector('.receipt');
     ok('struk tampil setelah bayar', (await page.textContent('.sheet')).includes('KS'));
+    const printerHelp = page.locator('[data-printer-help]');
+    const printerHelpText = await printerHelp.textContent().catch(() => '');
+    ok('fitur cetak Bluetooth RPP02N terlihat di struk', await printerHelp.count() === 1 && printerHelpText.includes('RPP02N') && printerHelpText.includes('Cleanter') && await page.locator('[data-print-bt]').count() === 1);
+    await page.click('[data-print-bt]');
+    await page.locator('.toast').filter({ hasText: 'Nota dikirim ke RPP02N' }).waitFor();
+    ok('tombol struk mengirim payload ESC/POS ke bridge RPP02N', printerJobs.length === 1 && printerJobs[0].printer === 'RPP02N' && printerJobs[0].paperWidth === 58 && printerJobs[0].content.some(x => x.type === 'row' && x.left === 'TOTAL'));
     await shot('08-struk');
     await page.click('[data-done]');
     ok('keranjang kosong setelah bayar', (await page.$$('#cartSide .cl')).length === 0);
 
     // 4. pengaturan pajak & tampil di keranjang
     await page.click('#tabs [data-view=kelola]'); await page.click('[data-act=sub][data-s=atur]'); await page.waitForSelector('[data-grp=tax]');
+    ok('pengaturan printer menampilkan tombol cek koneksi RPP02N', await page.locator('[data-act=printerCheck]').count() === 1 && (await page.textContent('#sub')).includes('Cleanter'));
     await shot('09-pengaturan');
     await page.fill('[name=tax_percent]', '10'); await page.click('[data-grp=tax]'); await page.waitForSelector('.toast');
     await page.click('#tabs [data-view=kasir]'); await page.waitForSelector('.tile');

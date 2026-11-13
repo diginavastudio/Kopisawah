@@ -14,7 +14,7 @@ const free = () => new Promise(r => { const s = net.createServer(); s.listen(0, 
   const proc = spawn('python3', [path.join(__dirname, '..', 'app.py')], { env: { ...process.env, KOPI_SAWAH_PORT: String(port), KOPI_SAWAH_DB: path.join(tmp, 't.sqlite3'), KOPI_SAWAH_SETUP_CODE: '12345678' }, stdio: 'ignore' });
   const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 80; i++) { try { if ((await fetch(base + '/api/health')).ok) break; } catch { } await new Promise(r => setTimeout(r, 100)); }
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/opt/chromium/chrome-linux64/chrome' });
   const results = [], errors = [];
   const ok = (name, cond, extra = '') => results.push([cond ? 'LULUS' : 'GAGAL', name, extra]);
   const post = (p, body, ip = '10.5.0.1') => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, 'X-Real-IP': ip }, body: JSON.stringify(body) }).then(r => r.json());
@@ -82,6 +82,13 @@ const free = () => new Promise(r => { const s = net.createServer(); s.listen(0, 
     await shot('66-struk-nama'); await page.click('[data-done]');
     const after = await (await api.get('/api/sales')).json();
     ok('transaksi baru tercatat atas nama Bu Sari', after.items[0].customer_name === 'Bu Sari', after.items[0].customer_name);
+    // ---- 5. tutup kasir: tunai + QRIS/transfer
+    await page.click('#tabs [data-view=kas]'); await page.waitForSelector('#countCash');
+    ok('tutup kasir punya kolom QRIS/transfer', !!(await page.$('#countNonCash')));
+    ok('kolom QRIS/transfer terisi angka seharusnya', (await page.inputValue('#countNonCash')).length > 0);
+    await page.fill('#countCash', '100000'); await page.waitForTimeout(250);
+    ok('selisih laci tampil', /laci/i.test(await txt('#diffBox')));
+    await shot('67-tutup-kasir');
   } catch (e) { results.push(['GAGAL', 'skrip berhenti: ' + e.message.split('\n')[0], '']); }
   finally { await browser.close(); proc.kill('SIGTERM'); }
   results.forEach(r => console.log(r.join(' | ')));

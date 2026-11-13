@@ -30,6 +30,7 @@ const ICON = {
   cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/>',
   doc: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
   table: '<path d="M4 9h16M6 9v10M18 9v10M3 9l1.5-4h15L21 9"/>',
+  cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>',
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
 
@@ -123,12 +124,12 @@ function toast(msg, kind = '') {
 }
 
 /* ============================== lembar (modal) ============================== */
-function openSheet({ title, body, footer = '', wide = false, onMount, onClose }) {
+function openSheet({ title, body, footer = '', bodyClass = '', footerClass = '', sheetClass = '', wide = false, onMount, onClose }) {
   const scrim = document.createElement('div');
   scrim.className = 'scrim';
-  scrim.innerHTML = `<div class="sheet ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+  scrim.innerHTML = `<div class="sheet ${wide ? 'wide' : ''} ${esc(sheetClass)}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="sheet-h"><h3>${esc(title)}</h3><button class="x" data-close aria-label="Tutup">×</button></div>
-    <div class="sheet-b">${body}</div>${footer ? `<div class="sheet-f">${footer}</div>` : ''}</div>`;
+    <div class="sheet-b ${esc(bodyClass)}">${body}</div>${footer ? `<div class="sheet-f ${esc(footerClass)}">${footer}</div>` : ''}</div>`;
   document.body.appendChild(scrim);
   const sh = {
     el: scrim, q: s => $(s, scrim), qa: s => $$(s, scrim),
@@ -307,15 +308,15 @@ function sumRows(t) {
 /* ============================== kerangka & navigasi ============================== */
 function navItems() {
   return isOwner()
-    ? [['home', 'Beranda', 'home'], ['kasir', 'Kasir', 'cart'], ['meja', 'Meja', 'table'], ['pesanan', 'Pesanan', 'list'], ['laporan', 'Laporan', 'chart'], ['kelola', 'Kelola', 'cog'], ['kas', 'Kas', 'cash']]
-    : [['kasir', 'Kasir', 'cart'], ['meja', 'Meja', 'table'], ['pesanan', 'Pesanan', 'list'], ['kas', 'Kas', 'cash']];
+    ? [['home', 'Beranda', 'home'], ['kasir', 'Kasir', 'cart'], ['meja', 'Meja', 'table'], ['reservasi', 'Reservasi', 'cal'], ['tagihan', 'Tagihan', 'doc'], ['pesanan', 'Pesanan', 'list'], ['laporan', 'Laporan', 'chart'], ['kelola', 'Kelola', 'cog'], ['kas', 'Kas', 'cash']]
+    : [['kasir', 'Kasir', 'cart'], ['meja', 'Meja', 'table'], ['reservasi', 'Reservasi', 'cal'], ['tagihan', 'Tagihan', 'doc'], ['pesanan', 'Pesanan', 'list'], ['kas', 'Kas', 'cash']];
 }
 function shell() {
   $('#app').innerHTML = `<header class="top"><img class="badge-logo" src="/static/images/logo-badge.png" alt="Kopi Sawah"><span class="brand">Kopi Sawah</span>
     <div class="who"><span id="shiftChip"></span><button class="btn ghost" data-act="help" aria-label="Bantuan" style="min-width:40px">?</button><span class="nm">${esc(state.me.name)} · ${ROLE_NAME[state.me.role]}</span>${state.tanpaLogin ? '' : '<button class="btn ghost" data-act="logout">Keluar</button>'}</div></header>
-    <nav class="tabs" id="tabs" aria-label="Menu utama">${navItems().map(([id, label, ic]) => `<button data-act="go" data-view="${id}">${icon(ic)}<span>${label}</span>${id === 'meja' ? '<span class="nbadge hidden" id="mejaBadge"></span>' : ''}</button>`).join('')}</nav>
+    <nav class="tabs" id="tabs" aria-label="Menu utama">${navItems().map(([id, label, ic]) => `<button data-act="go" data-view="${id}">${icon(ic)}<span>${label}</span>${id === 'meja' ? '<span class="nbadge hidden" id="mejaBadge"></span>' : ''}${id === 'tagihan' ? '<span class="nbadge hidden" id="billBadge"></span>' : ''}${id === 'reservasi' ? '<span class="nbadge hidden" id="resBadge"></span>' : ''}</button>`).join('')}</nav>
     <div id="offlineBar" class="hidden"></div><main id="main"></main>`;
-  updateShiftChip(); drawOfflineBar();
+  updateShiftChip(); drawOfflineBar(); updateBillBadge(); updateReservasiBadge();
 }
 function updateShiftChip() {
   const c = $('#shiftChip'); if (!c) return;
@@ -337,21 +338,24 @@ const head = (t, sub = '', right = '') => `<div class="page-head"><div><h2>${t}<
 function authFrame(inner) {
   $('#app').innerHTML = `<div class="auth"><img class="auth-logo" src="/static/images/logo-badge.png" alt="Kopi Sawah"><div class="card">${inner}</div></div>`;
 }
-function setupScreen() {
-  authFrame(`<h2>Selamat datang 👋</h2><p class="muted">Buat akun <b>pemilik</b> dulu. PIN ini dipakai untuk masuk dan mengatur toko.</p><div id="err"></div>
-    <form id="f" novalidate>${[
-      { name: 'name', label: 'Nama Anda', placeholder: 'mis. Digi', maxlength: 40 },
-      { name: 'pin', label: 'PIN pemilik (6–8 angka)', type: 'pin', hint: 'Jangan pakai angka berulang atau berurutan (mis. 111111, 123456).' },
-      { name: 'pin2', label: 'Ulangi PIN', type: 'pin' },
-      { name: 'code', label: 'Kode penyiapan', type: 'pin', hint: 'Kode 8 angka yang muncul di log server saat aplikasi dinyalakan. Perintah: <code>journalctl -u kopi-sawah -n 30</code>' },
-    ].map(fieldHTML).join('')}<button class="btn big block" type="submit">Buat akun & masuk</button></form>`);
+function setupScreen(tanpaKode) {
+  const fields = [
+    { name: 'name', label: 'Nama Anda', placeholder: 'mis. Digi', maxlength: 40 },
+    { name: 'pin', label: 'PIN pemilik (6–8 angka)', type: 'pin', hint: 'Jangan pakai angka berulang atau berurutan (mis. 111111, 123456).' },
+    { name: 'pin2', label: 'Ulangi PIN', type: 'pin' },
+  ];
+  if (!tanpaKode) fields.push({ name: 'code', label: 'Kode penyiapan', type: 'pin', hint: 'Kode 8 angka yang muncul di log server saat aplikasi dinyalakan. Perintah: <code>journalctl -u kopi-sawah -n 30</code>' });
+  authFrame(`<h2>Selamat datang 👋</h2><p class="muted">Buat akun <b>pemilik</b> dulu. PIN ini dipakai untuk masuk dan mengatur toko.</p>
+    ${tanpaKode ? '<div class="notice bad" style="margin-bottom:12px"><b>Siapa pun yang membuka halaman ini bisa membuat akun pemilik.</b> Selesaikan sekarang, jangan tinggalkan halaman ini terbuka.</div>' : ''}
+    <div id="err"></div>
+    <form id="f" novalidate>${fields.map(fieldHTML).join('')}<button class="btn big block" type="submit">Buat akun & masuk</button></form>`);
   $('#f').onsubmit = async e => {
     e.preventDefault();
-    const v = readFields($('#f'), [{ name: 'name' }, { name: 'pin' }, { name: 'pin2' }, { name: 'code' }]);
+    const v = readFields($('#f'), fields.map(f => ({ name: f.name })));
     const err = m => { $('#err').innerHTML = `<div class="notice bad" style="margin-bottom:12px">${esc(m)}</div>`; };
     if (!v.name) return err('Nama wajib diisi.');
     if (v.pin !== v.pin2) return err('PIN dan ulangan PIN tidak sama.');
-    try { await api('/api/auth/setup', { method: 'POST', body: { name: v.name, pin: v.pin, setup_code: v.code } }); boot(); }
+    try { await api('/api/auth/setup', { method: 'POST', body: { name: v.name, pin: v.pin, setup_code: tanpaKode ? '' : v.code } }); boot(); }
     catch (x) { err(x.message); }
   };
 }
@@ -401,7 +405,7 @@ const emptyNote = t => `<div class="empty">${t}</div>`;
 
 /* ============================== BANTUAN ============================== */
 const HELP_HTML = `<div class="stack">
-<details open><summary><b>Jualan di kasir</b></summary><ol><li>Tab <b>Kas</b> → isi uang awal laci → <b>Buka kasir</b> (sekali tiap shift).</li><li>Tab <b>Kasir</b> → ketuk menu → pilih ukuran/gula dsb. → <b>Tambah</b>.</li><li>Ketuk <b>Bayar</b> → pilih cara bayar. Untuk tunai isi uang diterima; kembalian muncul otomatis.</li><li>Akhir shift: tab <b>Kas</b> → hitung uang di laci → <b>Tutup kasir</b>.</li></ol></details>
+<details open><summary><b>Jualan di kasir</b></summary><ol><li>Tab <b>Kas</b> → isi uang awal laci → <b>Buka kasir</b> (sekali tiap shift).</li><li>Tab <b>Kasir</b> → ketuk menu → pilih ukuran/gula dsb. → <b>Tambah</b>.</li><li>Ketuk <b>Bayar</b> → pilih cara bayar. Untuk tunai isi uang diterima; kembalian muncul otomatis.</li><li>Akhir shift: tab <b>Kas</b> → hitung uang di laci dan cocokkan QRIS/transfer → <b>Tutup kasir</b>.</li></ol></details>
 <details><summary><b>Pesanan dari QR meja</b></summary><ol><li>Tab <b>Meja</b>: pesanan baru berbunyi. Ketuk <b>Terima</b>.</li><li>Dapur memasak lalu ketuk <b>Siap</b> (atau pakai <b>Papan dapur</b>), kemudian <b>Sudah disajikan</b>.</li><li>Pelanggan selesai makan → <b>Bayar meja</b>. Bisa bayar sebagian dengan menghilangkan centang pesanan.</li><li>Pelanggan pindah tempat duduk? <b>Pindah / gabung meja</b>.</li><li>Ada ikon 🙋/🧾 di atas = pelanggan memanggil pelayan / minta bill. Ketuk <b>Selesai</b> setelah dilayani.</li></ol></details>
 <details><summary><b>Internet putus</b></summary><p>Kasir tetap bisa menjual. Muncul pita merah <b>Offline</b>; penjualan disimpan di perangkat dan <b>terkirim otomatis</b> saat internet kembali. Jangan hapus data peramban dan jangan tutup kasir sebelum terkirim. Pesanan dari QR meja memerlukan internet.</p></details>
 <details><summary><b>Menu kosong / habis</b></summary><p>Di tab Kasir ketuk <b>Tandai menu habis</b>, lalu ketuk menu yang habis (ketuk lagi untuk tersedia kembali). Pelanggan melihat tulisan “Habis”.</p></details>
@@ -514,15 +518,30 @@ function cartInner(inSheet) {
     return `<div class="cl"><div class="info"><div class="nm">${esc(p?.name || '?')}</div>${l.opts.length ? `<div class="op">${esc(optLabel(l.opts))}</div>` : ''}<div class="small muted">${rp(lineUnit(l))} × ${l.qty} = <b>${rp(lineUnit(l) * l.qty)}</b></div></div>
     <div class="step"><button data-act="qty" data-key="${esc(l.key)}" data-d="-1" aria-label="Kurangi">−</button><b>${l.qty}</b><button data-act="qty" data-key="${esc(l.key)}" data-d="1" aria-label="Tambah">+</button></div></div>`; }).join('')
     : '<div class="empty">Belum ada pesanan.<br>Ketuk menu untuk menambahkan.</div>';
-  return `<h3 style="display:flex;justify-content:space-between;align-items:center">${inSheet ? '' : 'Pesanan '}<span class="small muted">${cartCount()} item</span>${state.cart.length ? '<button class="btn ghost sm" data-act="clearCart">Kosongkan</button>' : ''}</h3>
-    <div class="cart-lines">${lines}</div><div class="sumrows">${sumRows(t)}</div>
+  const heading = `<h3 style="display:flex;justify-content:space-between;align-items:center">${inSheet ? '' : 'Pesanan '}<span class="small muted">${cartCount()} item</span>${state.cart.length ? '<button class="btn ghost sm" data-act="clearCart">Kosongkan</button>' : ''}</h3>`;
+  if (inSheet) return `${heading}<div class="cart-lines">${lines}</div>`;
+  return `${heading}<div class="cart-lines">${lines}</div><div class="sumrows">${sumRows(t)}</div>
     <button class="btn gold big block" style="margin-top:12px" data-act="checkout" ${state.cart.length ? '' : 'disabled'}>Bayar · ${rp(t.total)}</button>`;
+}
+function cartSheetFooter() {
+  const t = calcTotals(cartSubtotal(), 0);
+  return `<div class="sumrows">${sumRows(t)}</div>
+    <button class="btn gold big block" data-act="checkout" ${state.cart.length ? '' : 'disabled'}>Bayar · ${rp(t.total)}</button>`;
 }
 function drawCart() {
   const side = $('#cartSide'); if (side) side.innerHTML = cartInner();
   const mb = $('#mobileBar');
   if (mb) mb.innerHTML = `<div class="grow"><div class="small muted">${cartCount()} item</div><b style="font-size:20px">${rp(calcTotals(cartSubtotal(), 0).total)}</b></div><button class="btn gold big" data-act="openCart" ${state.cart.length ? '' : 'disabled'}>Lihat pesanan</button>`;
-  if (state.cartSheet) { if (!state.cart.length) state.cartSheet.close(); else state.cartSheet.setBody(cartInner(true)); }
+  if (state.cartSheet) {
+    if (!state.cart.length) state.cartSheet.close();
+    else {
+      const sheet = state.cartSheet.q('.sheet'); if (sheet) sheet.classList.toggle('cart-sheet-long', state.cart.length > 5);
+      const scrollTop = state.cartSheet.q('.cart-lines')?.scrollTop || 0;
+      state.cartSheet.setBody(cartInner(true));
+      state.cartSheet.setFooter(cartSheetFooter());
+      const list = state.cartSheet.q('.cart-lines'); if (list) list.scrollTop = scrollTop;
+    }
+  }
 }
 function variantSheet(p, groups) {
   const picked = new Map(); let qty = 1;
@@ -550,17 +569,33 @@ function variantSheet(p, groups) {
 }
 
 /* ---- pembayaran ---- */
+const OM_LIST = [
+  ['langsung', 'Bayar Langsung', 'Pembeli langsung melakukan pembayaran.'],
+  ['piutang', 'Piutang', 'Pembeli berhutang kepada penjual.'],
+  ['pesanan', 'Buat Pesanan', 'Pembayaran dilakukan setelah proses pemesanan selesai.'],
+  ['gabung', 'Gabungkan Pesanan', 'Penggabungan dengan pesanan yang sudah ada.'],
+];
+const OM_HINT = {
+  langsung: 'Uang masuk sekarang; struk langsung tercetak.',
+  piutang: 'Disimpan sebagai piutang (belum lunas). Omzet baru dihitung saat pelunasan.',
+  pesanan: 'Pesanan disimpan dulu tanpa pembayaran; dilunasi setelah pesanan selesai.',
+  gabung: 'Pilih tagihan yang belum dibayar — pesanan baru masuk ke tagihan itu, satu struk saat lunas.',
+};
+const OM_LABEL = { langsung: 'Bayar', piutang: 'Simpan piutang', pesanan: 'Buat pesanan', gabung: 'Gabungkan' };
 function checkoutSheet(src) {
   const orderMode = !!(src && src.orders);
   if (!orderMode && !state.cart.length) return;
   state.cartSheet?.close();
   const st = state.settings; let sub = orderMode ? src.sub : cartSubtotal(); let selOrders = orderMode ? [...src.orders] : [];
   const canDisc = isOwner() || parseFloat(st.kasir_max_discount_percent) > 0;
-  const co = { type: 'dine_in', table: '', note: '', cust: '', discOn: false, dtype: 'percent', dval: '', dreason: '', method: '', paid: null, reqId: (crypto.randomUUID ? crypto.randomUUID() : 'ks-' + Date.now() + '-' + Math.random().toString(16).slice(2)), busy: false };
+  const co = { type: 'dine_in', table: '', note: '', cust: '', discOn: false, dtype: 'percent', dval: '', dreason: '', method: '', paid: null, om: 'langsung', bills: null, billId: '', reqId: (crypto.randomUUID ? crypto.randomUUID() : 'ks-' + Date.now() + '-' + Math.random().toString(16).slice(2)), busy: false };
   const packFee = () => {
     const fee = parseInt(st.packing_fee || '0', 10) || 0;
     if (fee <= 0 || orderMode || co.type !== 'take_away') return 0;
-    return st.packing_fee_per === 'item' ? fee * state.cart.reduce((a, l) => a + l.qty, 0) : fee;
+    const FOOD = new Set(['Makanan', 'Lauk', 'Camilan', 'Paket', 'Sayuran', 'Sup']);  // samakan dengan app.py FOOD_CATS
+    const qty = state.cart.reduce((a, l) => a + (FOOD.has(prod(l.pid)?.category) ? l.qty : 0), 0);
+    if (!qty) return 0;
+    return st.packing_fee_per === 'item' ? fee * qty : fee;
   };
   const sh = openSheet({
     title: 'Pembayaran', wide: true,
@@ -570,11 +605,17 @@ function checkoutSheet(src) {
     <div class="two"><div class="form-row"><label class="lbl" for="coTable">Nomor meja (opsional)</label><input class="field" id="coTable" maxlength="20" autocomplete="off" placeholder="mis. Meja 5"></div>
     <div class="form-row"><label class="lbl" for="coCust">Nama pelanggan (opsional)</label><input class="field" id="coCust" maxlength="40" autocomplete="off" list="coCustList" placeholder="mis. Bu Sari"><datalist id="coCustList"></datalist></div></div>
     <div class="form-row"><label class="lbl" for="coNote">Catatan (opsional)</label><input class="field" id="coNote" maxlength="240" autocomplete="off" placeholder="mis. jangan terlalu pedas"></div></div>
-    ${canDisc ? `<div class="form-row"><button type="button" class="btn ghost sm" id="coDiscBtn">+ Tambah diskon</button><div id="coDisc" class="hidden" style="margin-top:10px"><div class="seg" id="coDType"><button type="button" data-v="percent" class="on">Persen (%)</button><button type="button" data-v="nominal">Rupiah (Rp)</button></div>
+    ${canDisc ? `<div class="form-row" id="coDiscRow"><button type="button" class="btn ghost sm" id="coDiscBtn">+ Tambah diskon</button><div id="coDisc" class="hidden" style="margin-top:10px"><div class="seg" id="coDType"><button type="button" data-v="percent" class="on">Persen (%)</button><button type="button" data-v="nominal">Rupiah (Rp)</button></div>
       <div class="two" style="margin-top:10px"><input class="field" id="coDVal" inputmode="decimal" placeholder="Nilai diskon" autocomplete="off"><input class="field" id="coDWhy" maxlength="120" placeholder="Alasan (wajib)" autocomplete="off"></div>${isOwner() ? '' : `<div class="hint">Batas diskon kasir: ${esc(st.kasir_max_discount_percent)}% dari subtotal.</div>`}</div></div>` : ''}
     <div class="card flat sumrows" id="coSum" style="margin-bottom:14px"></div>
-    <div class="form-row"><label class="lbl">Cara bayar</label><div class="pay-grid" id="coPay">${Object.entries(state.methods).map(([k, v]) => `<button type="button" class="opt" data-m="${k}" style="margin:0;justify-content:center"><span>${esc(v)}</span></button>`).join('')}</div></div>
-    <div id="coCash" class="hidden"><label class="lbl" for="coPaid">Uang diterima (Rp)</label><input class="field" id="coPaid" inputmode="numeric" data-money placeholder="0" autocomplete="off"><div class="quick" id="coQuick"></div><div id="coChange"></div></div>`,
+    <div class="form-row" id="coPayRow"><label class="lbl">Cara bayar</label><div class="pay-grid" id="coPay">${Object.entries(state.methods).map(([k, v]) => `<button type="button" class="opt" data-m="${k}" style="margin:0;justify-content:center"><span>${esc(v)}</span></button>`).join('')}</div></div>
+    <div id="coCash" class="hidden"><label class="lbl" for="coPaid">Uang diterima (Rp)</label><input class="field" id="coPaid" inputmode="numeric" data-money placeholder="0" autocomplete="off"><div class="quick" id="coQuick"></div><div id="coChange"></div></div>
+    ${orderMode ? '' : `<hr style="border:0;border-top:1px solid var(--line2);margin:16px 0">
+    <div class="form-row"><label class="lbl">Metode pemesanan</label>
+      <div class="om-grid" id="coOM">${OM_LIST.map(([k, t, d]) => `<button type="button" class="om ${k === 'langsung' ? 'on' : ''}" data-om="${k}"><b>${t}</b><span>${d}</span></button>`).join('')}</div>
+      <div class="hint" id="coOMHint">${OM_HINT.langsung}</div>
+    </div>
+    <div class="form-row hidden" id="coBillPick"><label class="lbl">Tagihan yang digabung</label><div id="coBillList"><div class="hint">Memuat tagihan…</div></div></div>`}`,
     footer: `<button class="btn ghost" data-cancel>Kembali</button><button class="btn gold" id="coPayBtn" disabled>Bayar</button>`,
   });
   const err = m => { $('#coErr', sh.el).innerHTML = m ? `<div class="notice bad" style="margin-bottom:12px">${esc(m)}</div>` : ''; };
@@ -591,17 +632,29 @@ function checkoutSheet(src) {
   const update = () => {
     const d = discAmount(), t = calcTotals(sub, d.amt || 0, packFee());
     $('#coSum', sh.el).innerHTML = sumRows(t) + (d.error ? `<div class="hint" style="color:var(--bad)">${esc(d.error)}</div>` : '');
-    const cash = co.method === 'tunai';
+    const langsung = co.om === 'langsung';
+    const cash = langsung && co.method === 'tunai';
+    $('#coPayRow', sh.el)?.classList.toggle('hidden', !langsung);
+    $('#coDiscRow', sh.el)?.classList.toggle('hidden', !langsung);
     $('#coCash', sh.el).classList.toggle('hidden', !cash);
-    let ok = !!co.method && !d.error && (!orderMode || selOrders.length > 0);
-    if (cash) {
-      const paid = co.paid || 0, quick = [t.total, ...[5000, 10000, 20000, 50000, 100000].map(u => Math.ceil(t.total / u) * u)].filter((v, i, a) => a.indexOf(v) === i).slice(0, 5);
-      $('#coQuick', sh.el).innerHTML = quick.map((v, i) => `<button type="button" data-q="${v}">${i === 0 ? 'Uang pas' : rp(v)}</button>`).join('');
-      $$('#coQuick button', sh.el).forEach(b => b.onclick = () => { co.paid = parseInt(b.dataset.q, 10); $('#coPaid', sh.el).value = nf.format(co.paid); update(); });
-      $('#coChange', sh.el).innerHTML = co.paid == null ? '' : paid >= t.total ? `<div class="change"><span>Kembalian</span><span>${rp(paid - t.total)}</span></div>` : `<div class="change bad"><span>Kurang</span><span>${rp(t.total - paid)}</span></div>`;
-      ok = ok && paid >= t.total;
+    let ok, label = `Bayar · ${rp(t.total)}`;
+    if (langsung) {
+      ok = !!co.method && !d.error && (!orderMode || selOrders.length > 0);
+      if (cash) {
+        const paid = co.paid || 0, quick = [t.total, ...[5000, 10000, 20000, 50000, 100000].map(u => Math.ceil(t.total / u) * u)].filter((v, i, a) => a.indexOf(v) === i).slice(0, 5);
+        $('#coQuick', sh.el).innerHTML = quick.map((v, i) => `<button type="button" data-q="${v}">${i === 0 ? 'Uang pas' : rp(v)}</button>`).join('');
+        $$('#coQuick button', sh.el).forEach(b => b.onclick = () => { co.paid = parseInt(b.dataset.q, 10); $('#coPaid', sh.el).value = nf.format(co.paid); update(); });
+        $('#coChange', sh.el).innerHTML = co.paid == null ? '' : paid >= t.total ? `<div class="change"><span>Kembalian</span><span>${rp(paid - t.total)}</span></div>` : `<div class="change bad"><span>Kurang</span><span>${rp(t.total - paid)}</span></div>`;
+        ok = ok && paid >= t.total;
+      }
+    } else if (co.om === 'gabung') {
+      ok = !!co.billId;
+      label = 'Gabungkan pesanan';
+    } else {
+      ok = true;
+      label = `${OM_LABEL[co.om]} · ${rp(t.total)}`;
     }
-    const btn = $('#coPayBtn', sh.el); btn.disabled = !ok || co.busy; btn.textContent = `Bayar · ${rp(t.total)}`;
+    const btn = $('#coPayBtn', sh.el); btn.disabled = !ok || co.busy; btn.textContent = label;
     return t;
   };
   wireFields(sh.el);
@@ -619,9 +672,58 @@ function checkoutSheet(src) {
   $('#coDWhy', sh.el)?.addEventListener('input', e => { co.dreason = e.target.value; update(); });
   $('#coPay', sh.el).addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (!b) return; co.method = b.dataset.m; $$('#coPay .opt', sh.el).forEach(x => x.classList.toggle('on', x === b)); if (co.method === 'tunai') setTimeout(() => $('#coPaid', sh.el).focus(), 30); update(); });
   $('#coPaid', sh.el).addEventListener('input', e => { co.paid = digits(e.target.value) === '' ? null : parseInt(digits(e.target.value), 10); update(); });
+  const renderBills = () => {
+    const box = $('#coBillList', sh.el); if (!box) return;
+    const list = co.bills || [];
+    box.innerHTML = list.length ? list.map(b => `<button type="button" class="opt ${b.id === co.billId ? 'on' : ''}" data-bill="${esc(b.id)}"><span class="box"></span><span><b>${esc(b.id)}</b> · ${esc(b.kind_name)}${b.table_no ? ' · ' + esc(b.table_no) : ''}${b.customer_name ? ' · ' + esc(b.customer_name) : ''}<br><span class="small muted">${esc((b.items || []).map(i => `${i.quantity}× ${i.name_snapshot}`).join(', '))}</span></span><span class="pl">${rp(b.total_amount)}</span></button>`).join('') : '<div class="hint">Belum ada tagihan terbuka. Buat dulu dengan “Buat Pesanan”.</div>';
+    $$('#coBillList [data-bill]', sh.el).forEach(x => x.onclick = () => {
+      co.billId = x.dataset.bill; renderBills();
+      const b = (co.bills || []).find(z => z.id === co.billId);
+      if (b) $('#coOMHint', sh.el).textContent = `Setelah digabung: ${rp(b.total_amount)} + ${rp(sub)} = ${rp(b.total_amount + sub)} (sebelum diskon).`;
+      update();
+    });
+  };
+  const loadBills = async () => {
+    if (co.bills) return renderBills();
+    const box = $('#coBillList', sh.el); if (!box) return;
+    box.innerHTML = '<div class="hint">Memuat tagihan…</div>';
+    try { co.bills = (await api('/api/bills?status=open')).items || []; renderBills(); }
+    catch (e) { box.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; }
+  };
+  $('#coOM', sh.el)?.addEventListener('click', e => {
+    const b = e.target.closest('[data-om]'); if (!b) return;
+    co.om = b.dataset.om;
+    if (co.om !== 'langsung') { co.discOn = false; co.dval = ''; co.dreason = ''; }
+    $$('#coOM .om', sh.el).forEach(x => x.classList.toggle('on', x === b));
+    $('#coOMHint', sh.el).textContent = OM_HINT[co.om];
+    $('#coBillPick', sh.el).classList.toggle('hidden', co.om !== 'gabung');
+    if (co.om === 'gabung') loadBills();
+    update();
+  });
   $('[data-cancel]', sh.el).onclick = () => sh.close();
   $('#coPayBtn', sh.el).onclick = async () => {
     if (co.busy) return; co.busy = true; err(''); update();
+    if (!orderMode && co.om !== 'langsung') {
+      const items = state.cart.map(l => ({ product_id: l.pid, quantity: l.qty, modifiers: l.opts.map(o => ({ id: o.id })) }));
+      try {
+        if (co.om === 'gabung') {
+          const r = await api(`/api/bills/${encodeURIComponent(co.billId)}/items`, { method: 'POST', body: { items } });
+          state.cart = []; saveCart(); sh.close(); drawCart(); updateBillBadge();
+          toast('Pesanan digabung ke tagihan', 'ok');
+          billSheet(r.bill, true);
+        } else {
+          const r = await api('/api/sales', { method: 'POST', body: { items, order_method: co.om, order_type: co.type, table_no: co.table, customer_name: co.cust.trim(), note: co.note, request_id: co.reqId } });
+          state.cart = []; saveCart(); sh.close(); drawCart(); updateBillBadge();
+          toast(co.om === 'piutang' ? 'Piutang dicatat — belum lunas' : 'Pesanan disimpan — belum dibayar', 'ok');
+          billSheet(r.bill, true);
+        }
+      } catch (e) {
+        co.busy = false;
+        err(e.network ? 'Butuh internet untuk menyimpan tagihan. Sambungkan dulu, lalu coba lagi.' : e.message);
+        update();
+      }
+      return;
+    }
     const d = discAmount();
     const body = orderMode
       ? { order_ids: selOrders.map(o => o.id), payment_method: co.method, note: co.note, request_id: co.reqId }
@@ -665,25 +767,375 @@ function receiptHTML(s) {
     ${line('TOTAL', 'Rp' + nf.format(s.total_amount), 'b')}${line(esc(METHOD_NAME(s.payment_method)), nf.format(s.amount_paid))}${s.payment_method === 'tunai' ? line('Kembali', nf.format(s.change_amount)) : ''}
     ${s.status === 'void' ? '<hr><div class="c b">** DIBATALKAN **</div>' : ''}<hr><div class="c">${esc(st.receipt_footer)}</div>${st.outlet_contact ? `<div class="c">${esc(st.outlet_contact)}</div>` : ''}</div>`;
 }
+/* Stasiun dapur: tiket dipisah jelas jadi MAKANAN / MINUMAN / CAMILAN. */
+const STATION_ORDER = ['Makanan', 'Minuman', 'Camilan'];
+const DRINK_CATS = ['Kopi', 'Minuman', 'Wedangan'];
+function stationOf(item) {
+  const p = prod(item.product_id);
+  const cat = (p && p.category) || item.category || '';
+  if (DRINK_CATS.includes(cat)) return 'Minuman';
+  if (cat === 'Camilan') return 'Camilan';
+  // Add-on bisa minuman (Air Es, Es Batu) atau makanan (nasi, sambal, telur).
+  if (cat === 'Add-on') return /\b(es|air)\b/i.test(item.name_snapshot || (p && p.name) || '') ? 'Minuman' : 'Makanan';
+  return 'Makanan';
+}
 function ticketHTML(s) {
   const sc = kdsScale(), fh = Math.round(22 * sc), fi = Math.round(16 * sc), fm = Math.round(13 * sc);
-  return `<div class="receipt"><h4 style="font-size:${fh}px">${esc(s.id.split('-').pop())}</h4><div class="c b" style="font-size:${fi}px">${esc(state.orderTypes[s.order_type] || '')}${s.table_no ? ' · ' + esc(s.table_no) : ''}</div><div class="c">${esc(fmtTime(s.created_at))}</div><hr>
-    ${s.items.map(i => `<div class="b" style="font-size:${fi}px">${i.quantity}× ${esc(i.name_snapshot)}</div>${i.modifiers_summary ? `<div style="padding-left:10px;font-size:${fm}px">${esc(i.modifiers_summary.replace(/ \(\+\d+rb\)/g, ''))}</div>` : ''}`).join('<div style="height:6px"></div>')}
+  const groups = STATION_ORDER
+    .map(st => ({ st, items: s.items.filter(i => stationOf(i) === st) }))
+    .filter(g => g.items.length);
+  const line = i => `<div class="b" style="font-size:${fi}px">${i.quantity}× ${esc(i.name_snapshot)}</div>${i.modifiers_summary ? `<div style="padding-left:10px;font-size:${fm}px">${esc(i.modifiers_summary.replace(/ \(\+\d+rb\)/g, ''))}</div>` : ''}`;
+  return `<div class="receipt"><h4 style="font-size:${fh}px">${esc(s.id.split('-').pop())}</h4><div class="c b" style="font-size:${fi}px">${esc(state.orderTypes[s.order_type] || '')}${s.table_no ? ' · ' + esc(s.table_no) : ''}</div><div class="c">${esc(fmtTime(s.created_at))}</div>
+    ${groups.map(g => `<div class="station" style="font-size:${fm}px">${g.st.toUpperCase()}</div>${g.items.map(line).join('<div style="height:6px"></div>')}`).join('')}
     ${s.note ? `<hr><div class="b" style="font-size:${fi}px">Catatan: ${esc(s.note)}</div>` : ''}</div>`;
 }
 function printHTML(html) {
   const pa = $('#printArea'); pa.className = 'print-area' + (state.settings.receipt_width === '80' ? ' w80' : ''); pa.innerHTML = html;
   setTimeout(() => window.print(), 50);
 }
+function printerSetupGuide() {
+  return `<div class="notice" data-printer-help style="margin-top:10px;text-align:left">
+    <b>Cetak langsung Bluetooth · RPP02N</b>
+    <p style="margin:6px 0">Di tablet Android, pasang <b>Cleanter: Thermal Printer BT</b>. Buka Cleanter, pilih RPP02N yang sudah dipasangkan. Saat Chrome meminta akses ke aplikasi dan layanan lain di perangkat, pilih <b>Izinkan</b>.</p>
+    <a href="https://play.google.com/store/apps/details?id=id.cleancode.cleanter" target="_blank" rel="noopener">Buka Cleanter di Google Play</a>
+  </div>`;
+}
+
 function receiptSheet(sale, fresh) {
   openSheet({
     title: sale.offline ? 'Tersimpan di perangkat' : fresh ? 'Pembayaran berhasil ✓' : `Nota ${sale.id}`,
     body: `${sale.offline ? '<div class="notice bad" style="margin-bottom:12px"><b>Belum terkirim ke server.</b> Penjualan ini tersimpan di perangkat dan dikirim otomatis saat internet kembali. Nomor nota resmi muncul setelah terkirim. Jangan hapus data peramban sebelum terkirim.</div>' : ''}${fresh ? `<div class="notice ok" style="margin-bottom:12px"><b style="font-size:20px">${rp(sale.total_amount)}</b> · ${esc(METHOD_NAME(sale.payment_method))}${sale.payment_method === 'tunai' ? `<div style="font-size:22px;font-weight:800;margin-top:4px">Kembalian ${rp(sale.change_amount)}</div>` : ''}</div>` : ''}
     <div class="receipt-preview ${state.settings.receipt_width === '80' ? 'w80' : ''}">${receiptHTML(sale)}</div>
-    <p class="hint center">Cetak lewat printer yang terhubung ke perangkat ini (kertas ${esc(state.settings.receipt_width)} mm).</p>`,
-    footer: `<button class="btn ghost" data-ticket>Tiket dapur</button><button class="btn ghost" data-print>Cetak struk</button>${fresh ? '<button class="btn gold" data-done>Pesanan baru</button>' : '<button class="btn" data-done>Tutup</button>'}`,
-    onMount: s => { s.q('[data-print]').onclick = () => printHTML(receiptHTML(sale)); s.q('[data-ticket]').onclick = () => printHTML(ticketHTML(sale)); s.q('[data-done]').onclick = () => s.close(); },
+    ${printerSetupGuide()}`,
+    footer: `<button class="btn ghost" data-ticket>Tiket dapur</button><button class="btn ghost" data-print>Cetak dialog</button><button class="btn" data-print-bt>Cetak Bluetooth RPP02N</button>${fresh ? '<button class="btn gold" data-done>Pesanan baru</button>' : '<button class="btn" data-done>Tutup</button>'}`,
+    onMount: s => {
+      s.q('[data-print]').onclick = () => printHTML(receiptHTML(sale));
+      s.q('[data-ticket]').onclick = () => printHTML(ticketHTML(sale));
+      s.q('[data-print-bt]').onclick = async e => {
+        const b = e.currentTarget; b.disabled = true;
+        try {
+          await KopiSawahPrinter.print({ sale, settings: state.settings, orderTypeLabel: state.orderTypes[sale.order_type] || '', paymentMethodLabel: METHOD_NAME(sale.payment_method), dateLabel: fmtDateTime(sale.created_at) });
+          toast('Nota dikirim ke RPP02N', 'ok');
+        } catch (err) { toast(err.message, 'bad'); }
+        finally { b.disabled = false; }
+      };
+      s.q('[data-done]').onclick = () => s.close();
+    },
   });
+}
+
+/* ============================== RESERVASI MEJA ============================== */
+const RES_PILL = { baru: 'gold', ubah: 'warn', disetujui: 'ok', ditolak: 'bad', datang: 'ok', selesai: 'ok', batal: 'bad', tidak_datang: 'bad' };
+const waLink = (num, text) => { let n = String(num || '').replace(/\D/g, ''); if (n.startsWith('0')) n = '62' + n.slice(1); return n ? `https://wa.me/${n}?text=${encodeURIComponent(text)}` : ''; };
+function resWaText(r) {
+  const dasar = `Halo ${r.name}, reservasi ${r.id} tanggal ${r.tanggal}`;
+  if (r.status === 'baru') return `${dasar} jam ${r.jam} untuk ${r.party_size} orang sudah kami terima. Mohon tunggu konfirmasi kami.`;
+  if (r.status === 'disetujui') return `${dasar} jam ${r.jam}${r.table_label ? ' (' + r.table_label + ')' : ''} sudah DISETUJUI. Sampai jumpa.`;
+  if (r.status === 'ubah') return `${dasar}: jam ${r.jam} sudah penuh. Kami tawarkan jam ${r.proposed_jam}. Apakah bisa?`;
+  if (r.status === 'ditolak') return `${dasar} jam ${r.jam} belum bisa kami terima: ${r.reject_reason || 'jadwal penuh'}. Mohon maaf.`;
+  if (r.status === 'datang') return `${dasar} jam ${r.jam}: meja Anda sudah siap.`;
+  if (r.status === 'batal') return `${dasar} jam ${r.jam} kami batalkan.`;
+  return `${dasar} jam ${r.jam}.`;
+}
+async function updateReservasiBadge() {
+  const el = $('#resBadge'); if (!el || !state.me) return;
+  try { const d = await api('/api/reservasi?tanggal=' + todayWIB()); const n = d.baru || 0; el.textContent = n; el.classList.toggle('hidden', !n); }
+  catch { /* biarkan */ }
+}
+function resCard(r) {
+  const pill = RES_PILL[r.status] || '';
+  const items = (r.items || []).map(i => `${i.quantity}× ${i.name_snapshot}`).join(', ');
+  const btn = (act, label, cls = 'ghost') => `<button class="btn ${cls} sm" data-rid="${esc(r.id)}" data-act="${act}">${label}</button>`;
+  let aksi = '';
+  if (r.status === 'baru' || r.status === 'ubah') aksi = btn('ok', 'Setujui', '') + btn('tawar', 'Tawar jam') + btn('tolak', 'Tolak', 'danger');
+  else if (r.status === 'disetujui') aksi = btn('datang', 'Tamu datang', '') + btn('batal', 'Batalkan', 'danger');
+  else if (r.status === 'datang') aksi = btn('selesai', 'Selesai', '');
+  aksi += btn('tiket', 'Tiket');
+  if (r.phone) aksi += `<a class="btn ghost sm" target="_blank" rel="noopener" href="${waLink(r.phone, resWaText(r))}">WA</a>`;
+  if (['baru', 'ubah', 'disetujui', 'datang'].includes(r.status)) aksi += btn('dp', 'DP');
+  return `<div class="item"><div><div class="t">${esc(r.jam)} · ${esc(r.name)} <span class="pill ${pill}">${esc(r.status_name)}</span></div>
+    <div class="s">${r.party_size} orang · ${esc(r.phone)}${r.table_label ? ' · ' + esc(r.table_label) : ''}</div>
+    ${items ? `<div class="s">${esc(items)}</div>` : ''}
+    <div class="s">Perkiraan ${rp(r.total_estimate)}${r.dp_amount ? ' · DP ' + rp(r.dp_amount) : ''}${r.note ? ' · ' + esc(r.note) : ''}</div>
+    ${r.status === 'ubah' ? `<div class="s" style="color:var(--warn)">Tawar jam ${esc(r.proposed_jam)}: ${esc(r.change_reason)}</div>` : ''}
+    ${r.reject_reason ? `<div class="s" style="color:var(--bad)">Ditolak: ${esc(r.reject_reason)}</div>` : ''}
+    ${r.kasir_note ? `<div class="s">Catatan kasir: ${esc(r.kasir_note)}</div>` : ''}
+    </div><div class="end"><div class="row wrap" style="justify-content:flex-end;gap:6px">${aksi}</div></div></div>`;
+}
+async function viewReservasi() {
+  const tgl = state.resTgl || todayWIB();
+  const d = await api('/api/reservasi?tanggal=' + encodeURIComponent(tgl));
+  const pending = d.pending || [];
+  const pendingIds = new Set(pending.map(x => x.id));
+  const items = (d.items || []).filter(x => !pendingIds.has(x.id));
+  state.resList = [...pending, ...items];
+  const n = st => items.filter(x => x.status === st).length;
+  $('#main').innerHTML = head('Reservasi', 'Permintaan reservasi meja + pre-order. Kasir memutuskan: setujui, tawar jam lain, atau tolak.',
+    `<div class="row wrap"><input type="date" class="field" id="resTgl" value="${tgl}" style="width:auto;flex:0 0 auto">${isOwner() ? '<button class="btn ghost sm" data-resat>Atur</button>' : ''}</div>`)
+    + `<div class="grid stats" style="margin-bottom:14px">
+        <div class="card stat"><div class="label">Menunggu jawaban</div><div class="val">${d.baru || 0}</div></div>
+        <div class="card stat"><div class="label">Disetujui hari ini</div><div class="val">${n('disetujui')}</div></div>
+        <div class="card stat"><div class="label">Sudah datang</div><div class="val">${n('datang')}</div></div></div>`
+    + (pending.length ? `<div class="card" style="margin-bottom:14px"><h3>Menunggu jawaban (${pending.length})</h3><div class="list">${pending.map(resCard).join('')}</div></div>` : '')
+    + `<div class="card"><div class="list">${items.length ? items.map(resCard).join('') : `<div class="empty">Belum ada reservasi lain pada ${tgl}. Pelanggan memesan lewat tautan /r.</div>`}</div></div>`;
+  $('#resTgl').onchange = e => { state.resTgl = e.target.value; go('reservasi'); };
+  $('#main [data-resat]')?.addEventListener('click', resAturSheet);
+  $$('#main [data-rid]').forEach(b => b.onclick = () => resAction(b.dataset.rid, b.dataset.act));
+}
+async function resAction(id, act) {
+  const r = (state.resList || []).find(x => x.id === id); if (!r) return;
+  const jalan = async (path, body) => {
+    try { await api(`/api/reservasi/${encodeURIComponent(id)}/${path}`, { method: 'POST', body: body || {} }); toast('Reservasi diperbarui', 'ok'); updateReservasiBadge(); go('reservasi'); }
+    catch (e) { toast(e.message, 'bad'); }
+  };
+  if (act === 'ok') return jalan('setujui', {});
+  if (act === 'datang') return jalan('datang');
+  if (act === 'selesai') return jalan('selesai');
+  if (act === 'batal') {
+    if (await confirmSheet({ title: `Batalkan ${id}?`, text: 'Reservasi pelanggan akan dibatalkan.', ok: 'Ya, batalkan', danger: true })) jalan('batal', { reason: 'Dibatalkan kasir' });
+    return;
+  }
+  if (act === 'tiket') return cetakTiketReservasi(r);
+  if (act === 'tolak') return formSheet({
+    title: `Tolak ${id}`, intro: `Reservasi ${esc(r.name)} (${r.party_size} orang) pada ${esc(r.tanggal)} ${esc(r.jam)}.`, danger: true,
+    fields: [{ name: 'reason', label: 'Alasan penolakan', maxlength: 160, placeholder: 'mis. jam itu penuh' }], submit: 'Tolak reservasi',
+    onSubmit: async (v, f) => { await api(`/api/reservasi/${encodeURIComponent(id)}/tolak`, { method: 'POST', body: { reason: v.reason } }); f.close(); toast('Reservasi ditolak', 'ok'); updateReservasiBadge(); go('reservasi'); }
+  });
+  if (act === 'tawar') {
+    const info = await api('/api/public/reservasi/info').catch(() => null);
+    const jam = (info?.jam || []).map(j => [j, j]);
+    return formSheet({
+      title: `Tawar jam lain — ${id}`, intro: `Pelanggan minta ${esc(r.jam)}. Pilih jam pengganti; pelanggan menerima atau membatalkan.`,
+      fields: [{ name: 'jam', label: 'Jam pengganti', type: 'select', value: r.jam, options: jam },
+               { name: 'table_label', label: 'Meja (opsional)', value: r.table_label || '', maxlength: 30 },
+               { name: 'reason', label: 'Alasan', value: 'Jam itu sudah penuh', maxlength: 160 }],
+      submit: 'Kirim tawaran',
+      onSubmit: async (v, f) => { await api(`/api/reservasi/${encodeURIComponent(id)}/setujui`, { method: 'POST', body: v }); f.close(); toast('Tawaran jam dikirim ke pelanggan', 'ok'); go('reservasi'); }
+    });
+  }
+  if (act === 'dp') return formSheet({
+    title: `DP ${id}`,
+    fields: [{ name: 'amount', label: 'Jumlah DP (Rp)', type: 'money', value: r.dp_amount || 0 },
+             { name: 'method', label: 'Cara bayar', type: 'select', value: r.dp_method || 'transfer', options: [['transfer', 'Transfer bank'], ['qris', 'QRIS'], ['tunai', 'Tunai']] },
+             { name: 'note', label: 'Catatan (opsional)', maxlength: 160, value: r.dp_note || '' }],
+    submit: 'Simpan DP',
+    onSubmit: async (v, f) => { await api(`/api/reservasi/${encodeURIComponent(id)}/dp`, { method: 'POST', body: v }); f.close(); toast('DP dicatat', 'ok'); go('reservasi'); }
+  });
+}
+function cetakTiketReservasi(r) {
+  if (!(r.items || []).length) return toast('Reservasi ini tanpa pre-order — tidak ada yang dicetak.', 'bad');
+  const sale = { id: r.id, created_at: `${r.tanggal}T${r.jam}:00+07:00`, order_type: 'dine_in', table_no: r.table_label || '',
+    note: `RESERVASI ${r.jam} · ${r.name} (${r.party_size} orang)${r.note ? ' · ' + r.note : ''}`,
+    items: (r.items || []).map(i => ({ product_id: i.product_id, name_snapshot: i.name_snapshot, quantity: i.quantity, modifiers_summary: i.modifiers_summary })) };
+  printHTML(ticketHTML(sale));
+  api(`/api/reservasi/${encodeURIComponent(r.id)}/cetak`, { method: 'POST' }).catch(() => { });
+}
+async function resAturSheet() {
+  const s = (await api('/api/settings')).settings;
+  formSheet({
+    title: 'Atur reservasi', intro: 'Angka ini bisa diubah kapan saja; tidak mengubah data reservasi yang sudah ada.',
+    fields: [
+      { name: 'reservasi_aktif', type: 'switch', text: 'Reservasi dibuka untuk pelanggan', value: s.reservasi_aktif === '1' },
+      { name: 'reservasi_jam_mulai', label: 'Jam mulai (HH:MM)', value: s.reservasi_jam_mulai },
+      { name: 'reservasi_jam_akhir', label: 'Jam akhir (HH:MM)', value: s.reservasi_jam_akhir },
+      { name: 'reservasi_interval', label: 'Jarak antar jam (menit)', value: s.reservasi_interval },
+      { name: 'reservasi_hari_min', label: 'Paling cepat H- (hari)', value: s.reservasi_hari_min },
+      { name: 'reservasi_batas_jam', label: 'Batas pemesanan (HH:MM)', value: s.reservasi_batas_jam },
+      { name: 'reservasi_toleransi', label: 'Toleransi terlambat (menit)', value: s.reservasi_toleransi },
+      { name: 'reservasi_dp', label: 'DP (Rp, 0 = tidak wajib)', value: s.reservasi_dp },
+      { name: 'reservasi_max_orang', label: 'Maksimal orang per reservasi', value: s.reservasi_max_orang },
+      { name: 'reservasi_menit_tiket', label: 'Ingatkan cetak tiket X menit sebelum datang', value: s.reservasi_menit_tiket },
+      { name: 'reservasi_wa', label: 'Nomor WhatsApp kasir/pemilik', value: s.reservasi_wa, hint: 'Dipakai tombol WA: pelanggan mengabari kasir, kasir mengabari pelanggan. Tulis 08… atau 62…' },
+      { name: 'reservasi_info_bayar', label: 'Info pembayaran/DP untuk pelanggan', type: 'textarea', value: s.reservasi_info_bayar },
+    ],
+    submit: 'Simpan',
+    onSubmit: async (v, f) => { await api('/api/settings', { method: 'PUT', body: v }); f.close(); toast('Pengaturan reservasi disimpan', 'ok'); go('reservasi'); }
+  });
+}
+
+/* ============================== TAGIHAN (belum dibayar) ============================== */
+async function updateBillBadge() {
+  const el = $('#billBadge'); if (!el || !state.me) return;
+  try {
+    const d = await api('/api/bills?status=open');
+    const n = (d.items || []).length;
+    el.textContent = n; el.classList.toggle('hidden', !n);
+  } catch { /* biarkan badge apa adanya */ }
+}
+function billHTML(b) {
+  const st = state.settings, line = (l, v, cls = '') => `<div class="l ${cls}"><span>${l}</span><span>${v}</span></div>`;
+  return `<div class="receipt"><h4>${esc(st.outlet_name)}</h4><div class="c">${esc(st.outlet_address)}</div><hr>
+    <div class="c b">TAGIHAN — BELUM DIBAYAR</div>
+    <div>No: ${esc(b.id)}</div><div>${esc(fmtDateTime(b.created_at))}</div><div>Kasir: ${esc(b.cashier || '-')}</div>
+    <div>${esc(b.kind_name)} · ${esc(state.orderTypes[b.order_type] || '')}${b.table_no ? ' · ' + esc(b.table_no) : ''}</div>${b.customer_name ? `<div>Pelanggan: ${esc(b.customer_name)}</div>` : ''}<hr>
+    ${b.items.map(i => `<div>${esc(i.name_snapshot)}</div>${i.modifiers_summary ? `<div style="padding-left:8px">${esc(i.modifiers_summary)}</div>` : ''}${i.note ? `<div class="c">Catatan: ${esc(i.note)}</div>` : ''}${line(`${i.quantity} × ${nf.format(i.unit_price)}`, nf.format(i.line_total))}`).join('')}<hr>
+    ${b.note ? `<div>Catatan pesanan: ${esc(b.note)}</div><hr>` : ''}${line('Subtotal', nf.format(b.subtotal))}${b.packing_fee ? line('Kemasan', nf.format(b.packing_fee)) : ''}${b.service_amount ? line('Layanan', nf.format(b.service_amount)) : ''}${b.tax_amount ? line('Pajak', nf.format(b.tax_amount)) : ''}${b.rounding_amount ? line('Pembulatan', nf.format(b.rounding_amount)) : ''}${line('TOTAL', 'Rp' + nf.format(b.total_amount), 'b')}
+    <hr><div class="c">Belum dibayar. Semua pesanan yang digabung masuk ke satu nota saat dilunasi.</div></div>`;
+}
+function billEditSheet(b) {
+  if (!b || b.status !== 'open') return toast('Hanya tagihan yang belum dibayar yang bisa diedit.', 'bad');
+  const draft = b.items.map(i => ({ id: i.id, name: i.name_snapshot, variant: i.modifiers_summary || '',
+    quantity: Number(i.quantity), unit_price: Number(i.unit_price), note: i.note || '' }));
+  let billNote = b.note || '';
+  const draw = s => {
+    const subtotal = draft.reduce((sum, i) => sum + (i.quantity > 0 ? i.quantity * i.unit_price : 0), 0);
+    s.setBody(`<div class="notice" style="margin-bottom:12px">Ubah jumlah atau catatan dapur. Jumlah 0 menghapus item. Stok dan total tagihan diperbarui saat disimpan.</div>
+      ${draft.map(i => `<div class="card" style="padding:12px;margin-bottom:10px;${i.quantity === 0 ? 'opacity:.6' : ''}">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div><b>${esc(i.name)}</b>${i.variant ? `<div class="muted small">${esc(i.variant)}</div>` : ''}</div>
+          <button class="btn ghost sm" type="button" data-remove="${i.id}">${i.quantity === 0 ? 'Pulihkan' : 'Hapus'}</button></div>
+        <div class="row" style="align-items:end;gap:10px;margin-top:10px">
+          <label style="flex:0 0 110px">Jumlah<input data-qty="${i.id}" type="number" min="0" max="999" step="1" value="${i.quantity}" inputmode="numeric"></label>
+          <div style="flex:1;text-align:right"><span class="muted small">Harga satuan</span><div class="t">${rp(i.unit_price)}</div></div>
+        </div>
+        <label style="display:block;margin-top:10px">Catatan dapur<input data-note="${i.id}" type="text" maxlength="160" value="${esc(i.note)}" placeholder="Contoh: tidak pedas" style="display:block;width:100%;box-sizing:border-box;margin-top:4px"></label>
+        <div class="muted small" style="text-align:right;margin-top:6px">Jumlah baris: ${rp(i.quantity > 0 ? i.quantity * i.unit_price : 0)}</div>
+      </div>`).join('')}
+      <label style="display:block">Catatan untuk seluruh pesanan<textarea data-bill-note maxlength="240" rows="2" style="display:block;width:100%;box-sizing:border-box;margin-top:4px">${esc(billNote)}</textarea></label>
+      <div class="sum"><span>Subtotal sementara</span><b>${rp(subtotal)}</b></div><div class="muted small">Total akhir (termasuk biaya/pajak) dihitung ulang setelah disimpan.</div>`);
+    s.setFooter('<button class="btn ghost" data-cancel>Batal</button><button class="btn gold" data-save>Simpan perubahan</button>');
+    s.qa('[data-qty]').forEach(input => input.onchange = () => {
+      const line = draft.find(x => String(x.id) === input.dataset.qty);
+      line.quantity = Math.max(0, Math.min(999, Number.parseInt(input.value, 10) || 0)); draw(s);
+    });
+    s.qa('[data-note]').forEach(input => input.onchange = () => {
+      const line = draft.find(x => String(x.id) === input.dataset.note); line.note = input.value.trim();
+    });
+    s.qa('[data-remove]').forEach(button => button.onclick = () => {
+      const line = draft.find(x => String(x.id) === button.dataset.remove);
+      line.quantity = line.quantity === 0 ? 1 : 0; draw(s);
+    });
+    s.q('[data-bill-note]').onchange = () => { billNote = s.q('[data-bill-note]').value.trim(); };
+    s.q('[data-cancel]').onclick = () => s.close();
+    s.q('[data-save]').onclick = async () => {
+      const save = s.q('[data-save]'); save.disabled = true; save.textContent = 'Menyimpan…';
+      const items = draft.map(i => ({ id: i.id, quantity: i.quantity, note: i.note }));
+      try {
+        const r = await api(`/api/bills/${encodeURIComponent(b.id)}/edit`, { method: 'PUT', body: { items, note: billNote, revision: b.revision } });
+        s.close(); updateBillBadge();
+        if (state.view === 'tagihan') go('tagihan');
+        toast('Pesanan diperbarui', 'ok'); billSheet(r.bill, false);
+      } catch (e) { save.disabled = false; save.textContent = 'Simpan perubahan'; toast(e.message, 'bad'); }
+    };
+  };
+  openSheet({ title: `Edit pesanan ${b.id}`, body: '', footer: ' ', wide: true,
+    onMount: draw });
+}
+function billSheet(b, fresh) {
+  openSheet({
+    title: fresh ? (b.kind === 'piutang' ? 'Piutang dicatat' : 'Pesanan disimpan') : `Tagihan ${b.id}`,
+    wide: true,
+    body: `<div class="notice ${b.kind === 'piutang' ? 'bad' : ''}" style="margin-bottom:12px"><b>${esc(b.kind_name)} · ${rp(b.total_amount)}</b> — belum dibayar. Omzet baru masuk laporan saat tagihan ini dilunasi.</div>
+      <div class="receipt-preview ${state.settings.receipt_width === '80' ? 'w80' : ''}">${billHTML(b)}</div>
+      ${isOwner() ? '<div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn danger sm" data-void>Batalkan tagihan</button></div>' : ''}`,
+    footer: `${b.status === 'open' ? '<button class="btn ghost" data-edit>Ubah pesanan</button>' : ''}<button class="btn ghost" data-print>Cetak tagihan</button><button class="btn ghost" data-kind>${b.kind === 'piutang' ? 'Jadikan pesanan' : 'Jadikan piutang'}</button><button class="btn gold" data-pay>Bayar sekarang</button>`,
+    onMount: s => {
+      s.q('[data-edit]')?.addEventListener('click', async () => {
+        const billId = b.id; s.close();
+        try { const latest = await api(`/api/bills/${encodeURIComponent(billId)}`); billEditSheet(latest.item); }
+        catch (e) { toast(e.message, 'bad'); }
+      });
+      s.q('[data-print]').onclick = () => printHTML(billHTML(b));
+      s.q('[data-pay]').onclick = () => { s.close(); billPaySheet(b); };
+      s.q('[data-kind]').onclick = async () => {
+        try {
+          const r = await api(`/api/bills/${encodeURIComponent(b.id)}/kind`, { method: 'POST', body: { kind: b.kind === 'piutang' ? 'pesanan' : 'piutang' } });
+          s.close(); toast('Jenis tagihan diubah', 'ok'); updateBillBadge();
+          if (state.view === 'tagihan') go('tagihan'); else billSheet(r.bill, false);
+        } catch (e) { toast(e.message, 'bad'); }
+      };
+      s.q('[data-void]')?.addEventListener('click', () => {
+        s.close();
+        formSheet({ title: `Batalkan ${b.id}?`, intro: `Tagihan <b>${rp(b.total_amount)}</b> akan dibatalkan, dikeluarkan dari daftar, dan stok dikembalikan (jika terlacak). Ini tidak bisa diurungkan.`, fields: [{ name: 'reason', label: 'Alasan pembatalan', maxlength: 160 }], submit: 'Ya, batalkan tagihan', danger: true,
+          onSubmit: async (v, f) => { await api(`/api/bills/${encodeURIComponent(b.id)}/void`, { method: 'POST', body: { reason: v.reason } }); f.close(); toast('Tagihan dibatalkan', 'ok'); loadProducts(true); updateBillBadge(); go('tagihan'); } });
+      });
+    },
+  });
+}
+function billPaySheet(b) {
+  const st = state.settings, canDisc = isOwner() || parseFloat(st.kasir_max_discount_percent) > 0;
+  const sub = b.subtotal, packing = b.packing_fee || 0;
+  const bp = { method: '', paid: null, discOn: false, dtype: 'percent', dval: '', dreason: '', busy: false, reqId: (crypto.randomUUID ? crypto.randomUUID() : 'ks-' + Date.now() + '-' + Math.random().toString(16).slice(2)) };
+  const sh = openSheet({
+    title: `Bayar ${b.id}`, wide: true,
+    body: `<div id="bpErr"></div>
+      <div class="card flat sumrows" style="margin-bottom:14px">${b.items.map(i => `<div class="r"><span>${i.quantity}× ${esc(i.name_snapshot)}${i.modifiers_summary ? ` <span class="small muted">(${esc(i.modifiers_summary)})</span>` : ''}</span><span>${rp(i.line_total)}</span></div>`).join('')}</div>
+      ${canDisc ? `<div class="form-row"><button type="button" class="btn ghost sm" id="bpDiscBtn">+ Tambah diskon</button><div id="bpDisc" class="hidden" style="margin-top:10px"><div class="seg" id="bpDType"><button type="button" data-v="percent" class="on">Persen (%)</button><button type="button" data-v="nominal">Rupiah (Rp)</button></div><div class="two" style="margin-top:10px"><input class="field" id="bpDVal" inputmode="decimal" placeholder="Nilai diskon" autocomplete="off"><input class="field" id="bpDWhy" maxlength="120" placeholder="Alasan (wajib)" autocomplete="off"></div></div></div>` : ''}
+      <div class="card flat sumrows" id="bpSum" style="margin-bottom:14px"></div>
+      <div class="form-row"><label class="lbl">Cara bayar</label><div class="pay-grid" id="bpPay">${Object.entries(state.methods).map(([k, v]) => `<button type="button" class="opt" data-m="${k}" style="margin:0;justify-content:center"><span>${esc(v)}</span></button>`).join('')}</div></div>
+      <div id="bpCash" class="hidden"><label class="lbl" for="bpPaid">Uang diterima (Rp)</label><input class="field" id="bpPaid" inputmode="numeric" data-money placeholder="0" autocomplete="off"><div class="quick" id="bpQuick"></div><div id="bpChange"></div></div>`,
+    footer: `<button class="btn ghost" data-cancel>Kembali</button><button class="btn gold" id="bpBtn" disabled>Bayar</button>`,
+  });
+  const err = m => { $('#bpErr', sh.el).innerHTML = m ? `<div class="notice bad" style="margin-bottom:12px">${esc(m)}</div>` : ''; };
+  const discAmount = () => {
+    if (!bp.discOn || bp.dval === '') return { amt: 0 };
+    let amt;
+    if (bp.dtype === 'percent') { const pct = toBp(bp.dval); if (!(pct > 0 && pct <= 10000)) return { error: 'Diskon persen harus antara 0 dan 100.' }; amt = pctOf(sub, pct); }
+    else amt = parseInt(digits(bp.dval) || '0', 10);
+    if (amt > sub) return { error: 'Diskon tidak boleh melebihi subtotal.' };
+    if (amt > 0 && !bp.dreason.trim()) return { error: 'Isi alasan diskon.' };
+    return { amt };
+  };
+  const update = () => {
+    const d = discAmount(), t = calcTotals(sub, d.amt || 0, packing);
+    $('#bpSum', sh.el).innerHTML = sumRows(t) + (d.error ? `<div class="hint" style="color:var(--bad)">${esc(d.error)}</div>` : '');
+    const cash = bp.method === 'tunai';
+    $('#bpCash', sh.el).classList.toggle('hidden', !cash);
+    let ok = !!bp.method && !d.error;
+    if (cash) {
+      const paid = bp.paid || 0;
+      const quick = [t.total, ...[5000, 10000, 20000, 50000, 100000].map(u => Math.ceil(t.total / u) * u)].filter((v, i, a) => a.indexOf(v) === i).slice(0, 5);
+      $('#bpQuick', sh.el).innerHTML = quick.map((v, i) => `<button type="button" data-q="${v}">${i === 0 ? 'Uang pas' : rp(v)}</button>`).join('');
+      $$('#bpQuick button', sh.el).forEach(x => x.onclick = () => { bp.paid = parseInt(x.dataset.q, 10); $('#bpPaid', sh.el).value = nf.format(bp.paid); update(); });
+      $('#bpChange', sh.el).innerHTML = bp.paid == null ? '' : paid >= t.total ? `<div class="change"><span>Kembalian</span><span>${rp(paid - t.total)}</span></div>` : `<div class="change bad"><span>Kurang</span><span>${rp(t.total - paid)}</span></div>`;
+      ok = ok && paid >= t.total;
+    }
+    const btn = $('#bpBtn', sh.el); btn.disabled = !ok || bp.busy; btn.textContent = `Bayar · ${rp(t.total)}`;
+    return t;
+  };
+  wireFields(sh.el);
+  $('#bpPay', sh.el).addEventListener('click', e => {
+    const x = e.target.closest('[data-m]'); if (!x) return;
+    bp.method = x.dataset.m; $$('#bpPay .opt', sh.el).forEach(z => z.classList.toggle('on', z === x));
+    if (bp.method === 'tunai') setTimeout(() => $('#bpPaid', sh.el).focus(), 30);
+    update();
+  });
+  $('#bpPaid', sh.el).addEventListener('input', e => { bp.paid = digits(e.target.value) === '' ? null : parseInt(digits(e.target.value), 10); update(); });
+  $('#bpDiscBtn', sh.el)?.addEventListener('click', () => { bp.discOn = !bp.discOn; $('#bpDisc', sh.el).classList.toggle('hidden', !bp.discOn); $('#bpDiscBtn', sh.el).textContent = bp.discOn ? '− Hapus diskon' : '+ Tambah diskon'; update(); });
+  $('#bpDType', sh.el)?.addEventListener('click', e => { const x = e.target.closest('button[data-v]'); if (!x) return; bp.dtype = x.dataset.v; $$('#bpDType button', sh.el).forEach(z => z.classList.toggle('on', z === x)); $('#bpDVal', sh.el).value = ''; bp.dval = ''; update(); });
+  $('#bpDVal', sh.el)?.addEventListener('input', e => { bp.dval = e.target.value; update(); });
+  $('#bpDWhy', sh.el)?.addEventListener('input', e => { bp.dreason = e.target.value; update(); });
+  $('[data-cancel]', sh.el).onclick = () => sh.close();
+  $('#bpBtn', sh.el).onclick = async () => {
+    if (bp.busy) return; bp.busy = true; err(''); update();
+    const d = discAmount(), t = update();
+    const body = { payment_method: bp.method, request_id: bp.reqId };
+    if (bp.method === 'tunai') body.amount_paid = bp.paid;
+    if (d.amt) body.discount = { type: bp.dtype, value: bp.dtype === 'percent' ? parseFloat(bp.dval.replace(',', '.')) : d.amt, reason: bp.dreason.trim() };
+    try {
+      const r = await api(`/api/bills/${encodeURIComponent(b.id)}/settle`, { method: 'POST', body });
+      sh.close(); updateBillBadge(); loadProducts(true).catch(() => { });
+      if (r.duplicate) toast('Tagihan ini sudah lunas sebelumnya.', 'ok');
+      receiptSheet(r.item, true);
+      if (state.view === 'tagihan') go('tagihan');
+    } catch (e) {
+      bp.busy = false; err(e.message); update();
+    }
+  };
+  update();
+}
+async function viewTagihan() {
+  const d = await api('/api/bills?status=open');
+  const items = d.items || [];
+  const total = items.reduce((s, b) => s + b.total_amount, 0);
+  const piutang = items.filter(b => b.kind === 'piutang');
+  $('#main').innerHTML = head('Tagihan', 'Pesanan yang belum dibayar dan piutang pelanggan. Omzet dihitung saat tagihan dilunasi.')
+    + `<div class="grid stats" style="margin-bottom:14px"><div class="card stat"><div class="label">Tagihan terbuka</div><div class="val">${items.length}</div></div>
+       <div class="card stat"><div class="label">Nilai belum dibayar</div><div class="val">${rp(total)}</div></div>
+       <div class="card stat"><div class="label">Piutang</div><div class="val">${piutang.length}</div><div class="sub">${rp(piutang.reduce((s, b) => s + b.total_amount, 0))}</div></div></div>`
+    + `<div class="card"><div class="list">${items.length ? items.map(b => `<div class="item"><div><div class="t">${esc(b.id)} · ${esc(b.kind_name)}</div><div class="s">${esc((b.items || []).map(i => `${i.quantity}× ${i.name_snapshot}`).join(', '))}</div><div class="s">${fmtTime(b.created_at)}${b.table_no ? ' · ' + esc(b.table_no) : ''}${b.customer_name ? ' · ' + esc(b.customer_name) : ''}${b.cashier ? ' · ' + esc(b.cashier) : ''}</div></div><div class="end"><div class="t">${rp(b.total_amount)}</div><div class="row" style="justify-content:flex-end;gap:6px"><button class="btn sm gold" data-pay="${esc(b.id)}">Bayar</button><button class="btn sm ghost" data-open="${esc(b.id)}">Detail</button></div></div></div>`).join('') : '<div class="empty">Belum ada tagihan terbuka. Tagihan muncul saat kasir memilih “Buat Pesanan” atau “Piutang”.</div>'}</div></div>`;
+  const byId = id => items.find(b => b.id === id);
+  $$('#main [data-pay]').forEach(x => x.onclick = () => billPaySheet(byId(x.dataset.pay)));
+  $$('#main [data-open]').forEach(x => x.onclick = () => billSheet(byId(x.dataset.open), false));
 }
 
 /* ============================== PESANAN ============================== */
@@ -702,10 +1154,23 @@ async function saleSheet(id) {
   const { item: s } = await api('/api/sales/' + encodeURIComponent(id));
   const sh = openSheet({
     title: `Nota ${s.id}`, wide: true,
-    body: `${s.status === 'void' ? `<div class="notice bad" style="margin-bottom:12px"><b>Dibatalkan</b> oleh ${esc(s.voided_by)} — ${esc(s.void_reason)}</div>` : ''}<div class="receipt-preview ${state.settings.receipt_width === '80' ? 'w80' : ''}">${receiptHTML(s)}</div>`,
-    footer: `<button class="btn ghost" data-ticket>Tiket dapur</button><button class="btn ghost" data-print>Cetak struk</button>${isOwner() && s.status !== 'void' ? '<button class="btn danger" data-void>Batalkan</button>' : ''}`,
+    body: `${s.status === 'void' ? `<div class="notice bad" style="margin-bottom:12px"><b>Dibatalkan</b> oleh ${esc(s.voided_by)} — ${esc(s.void_reason)}</div>` : ''}<div class="receipt-preview ${state.settings.receipt_width === '80' ? 'w80' : ''}">${receiptHTML(s)}</div>${printerSetupGuide()}${isOwner() ? '<div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn danger sm" data-del>Hapus permanen</button></div>' : ''}`,
+    footer: `<button class="btn ghost" data-ticket>Tiket dapur</button><button class="btn ghost" data-print>Cetak dialog</button><button class="btn" data-print-bt>Cetak Bluetooth RPP02N</button>${isOwner() && s.status !== 'void' ? '<button class="btn danger" data-void>Batalkan</button>' : ''}`,
     onMount: x => {
       x.q('[data-print]').onclick = () => printHTML(receiptHTML(s)); x.q('[data-ticket]').onclick = () => printHTML(ticketHTML(s));
+      x.q('[data-del]')?.addEventListener('click', () => {
+        x.close();
+        formSheet({ title: `Hapus ${s.id}?`, intro: `Transaksi <b>${rp(s.total_amount)}</b> akan <b>dihapus permanen</b> dari daftar dan laporan. Stok dikembalikan (jika terlacak). Ini tidak bisa diurungkan — beda dengan “Batalkan” yang menyimpan jejak.`, fields: [{ name: 'reason', label: 'Alasan penghapusan', maxlength: 160 }], submit: 'Ya, hapus permanen', danger: true,
+          onSubmit: async (v, f) => { await api(`/api/sales/${encodeURIComponent(s.id)}`, { method: 'DELETE', body: { reason: v.reason } }); f.close(); toast('Transaksi dihapus', 'ok'); loadProducts(true); go('pesanan'); } });
+      });
+      x.q('[data-print-bt]').onclick = async e => {
+        const b = e.currentTarget; b.disabled = true;
+        try {
+          await KopiSawahPrinter.print({ sale: s, settings: state.settings, orderTypeLabel: state.orderTypes[s.order_type] || '', paymentMethodLabel: METHOD_NAME(s.payment_method), dateLabel: fmtDateTime(s.created_at) });
+          toast('Nota dikirim ke RPP02N', 'ok');
+        } catch (err) { toast(err.message, 'bad'); }
+        finally { b.disabled = false; }
+      };
       x.q('[data-void]')?.addEventListener('click', () => { x.close(); formSheet({ title: `Batalkan ${s.id}?`, intro: `Transaksi senilai <b>${rp(s.total_amount)}</b> akan dibatalkan, dikeluarkan dari laporan, dan stok dikembalikan (jika terlacak). Ini tidak bisa diurungkan.`, fields: [{ name: 'reason', label: 'Alasan pembatalan', maxlength: 160 }], submit: 'Ya, batalkan transaksi', danger: true, onSubmit: async (v, f) => { await api(`/api/sales/${encodeURIComponent(s.id)}/void`, { method: 'POST', body: { reason: v.reason } }); f.close(); toast('Transaksi dibatalkan', 'ok'); loadProducts(true); go('pesanan'); } }); });
     },
   });
@@ -719,36 +1184,49 @@ function shiftReportHTML(sh) {
     <tr><td>Kasir</td><td class="num">${esc(sh.cashier)}</td></tr>
     <tr><td>Uang awal laci</td><td class="num">${rp(sh.opening_cash)}</td></tr>
     <tr><td>Penjualan tunai</td><td class="num">${rp(sh.cash_sales)}</td></tr>
-    <tr><td><b>Seharusnya ada di laci</b></td><td class="num"><b>${rp(sh.expected_cash)}</b></td></tr></tbody></table>
+    <tr><td><b>Seharusnya ada di laci</b></td><td class="num"><b>${rp(sh.expected_cash)}</b></td></tr>
+    <tr><td>Penjualan QRIS/transfer (non-tunai)</td><td class="num">${rp(sh.noncash_sales || 0)}</td></tr></tbody></table>
     <h3 style="margin:16px 0 6px">Penjualan per cara bayar</h3>
     ${m.length ? `<table><tbody>${m.map(x => `<tr><td>${esc(METHOD_NAME(x.payment_method))} <span class="muted small">(${x.n}×)</span></td><td class="num">${rp(x.total)}</td></tr>`).join('')}<tr><td><b>Total penjualan</b></td><td class="num"><b>${rp(sh.sales_total)}</b></td></tr></tbody></table>` : '<div class="muted">Belum ada penjualan.</div>'}
-    ${sh.void_count ? `<p class="small muted">Dibatalkan: ${sh.void_count} transaksi (${rp(sh.void_total)}), tidak dihitung.</p>` : ''}`;
+    ${sh.void_count ? `<p class="small muted">Dibatalkan: ${sh.void_count} transaksi (${rp(sh.void_total)}), tidak dihitung.</p>` : ''}${sh.open_bills_count ? `<p class="small muted">Tagihan belum dibayar dari kas ini: ${sh.open_bills_count} (${rp(sh.open_bills_total)}), belum masuk penjualan.</p>` : ''}`;
 }
 async function viewKas() {
   const sh = await loadShift();
   let hist = '';
   if (isOwner()) {
     const h = await api('/api/shifts');
-    hist = `<div class="card" style="margin-top:14px"><h3>Riwayat kas</h3><div class="tablewrap"><table><thead><tr><th>Kasir</th><th>Buka</th><th>Tutup</th><th class="num">Seharusnya</th><th class="num">Dihitung</th><th class="num">Selisih</th></tr></thead><tbody>${h.items.map(x => `<tr><td>${esc(x.cashier)}</td><td>${esc(fmtDateTime(x.opened_at))}</td><td>${x.closed_at ? esc(fmtDateTime(x.closed_at)) : '<span class="pill ok">Terbuka</span>'}</td><td class="num">${rp(x.expected_cash)}</td><td class="num">${x.closed_at ? rp(x.counted_cash) : '—'}</td><td class="num">${x.closed_at ? `<span class="pill ${x.difference === 0 ? 'ok' : 'bad'}">${x.difference === 0 ? 'Pas' : rp(x.difference)}</span>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Belum ada.</td></tr>'}</tbody></table></div></div>`;
+    hist = `<div class="card" style="margin-top:14px"><h3>Riwayat kas</h3><div class="tablewrap"><table><thead><tr><th>Kasir</th><th>Buka</th><th>Tutup</th><th class="num">Tunai seharusnya</th><th class="num">Tunai dihitung</th><th class="num">Non-tunai</th><th class="num">Selisih</th></tr></thead><tbody>${h.items.map(x => `<tr><td>${esc(x.cashier)}</td><td>${esc(fmtDateTime(x.opened_at))}</td><td>${x.closed_at ? esc(fmtDateTime(x.closed_at)) : '<span class="pill ok">Terbuka</span>'}</td><td class="num">${rp(x.expected_cash)}</td><td class="num">${x.closed_at ? rp(x.counted_cash) : '—'}</td><td class="num">${rp(x.expected_noncash || 0)}${x.closed_at && (x.counted_noncash || 0) !== (x.expected_noncash || 0) ? `<div class="small muted">dihitung ${rp(x.counted_noncash || 0)}</div>` : ''}</td><td class="num">${x.closed_at ? `<span class="pill ${x.difference === 0 ? 'ok' : 'bad'}">${x.difference === 0 ? 'Pas' : rp(x.difference)}</span>${x.difference_noncash ? `<div class="small"><span class="pill ${x.difference_noncash === 0 ? 'ok' : 'bad'}">${rp(x.difference_noncash)}</span></div>` : ''}` : '—'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Belum ada.</td></tr>'}</tbody></table></div></div>`;
   }
   if (!sh) { $('#main').innerHTML = head('Kas', 'Buka kasir untuk mulai jualan.') + openShiftCard() + hist; return; }
   $('#main').innerHTML = head('Kas & tutup kasir', 'Ringkasan sementara untuk shift Anda yang sedang berjalan.')
     + `<div class="grid g2"><div class="card"><h3>Laporan sementara</h3>${shiftReportHTML(sh)}</div>
-    <div class="card"><h3>Tutup kasir</h3><p class="muted">Hitung semua uang tunai di laci, lalu isi jumlahnya. Aplikasi menunjukkan apakah uang cocok.</p><div id="shiftErr"></div>
-    <div class="form-row"><label class="lbl" for="countCash">Uang tunai di laci sekarang (Rp)</label><input class="field" id="countCash" inputmode="numeric" data-money placeholder="0" autocomplete="off"></div>
+    <div class="card"><h3>Tutup kasir</h3><p class="muted">Hitung uang tunai di laci dan cocokkan penerimaan QRIS/transfer, lalu isi jumlahnya. Aplikasi menunjukkan apakah cocok.</p>${sh.open_bills_count ? `<div class="notice" style="margin-bottom:10px"><b>${sh.open_bills_count} tagihan belum dibayar</b> (${rp(sh.open_bills_total)}) dari kas ini. Tagihan tetap tersimpan setelah kas ditutup dan bisa dilunasi kapan saja di tab Tagihan.</div>` : ''}<div id="shiftErr"></div>
+    <div class="form-row"><label class="lbl" for="countCash">Uang tunai di laci sekarang (Rp)</label><input class="field" id="countCash" inputmode="numeric" data-money placeholder="0" autocomplete="off"><div class="hint">Menurut laporan seharusnya ${rp(sh.expected_cash)}.</div></div>
+    <div class="form-row"><label class="lbl" for="countNonCash">QRIS/transfer diterima (Rp)</label><input class="field" id="countNonCash" inputmode="numeric" data-money value="${sh.expected_noncash ? nf.format(sh.expected_noncash) : ''}" autocomplete="off"><div class="hint">Menurut penjualan non-tunai seharusnya ${rp(sh.expected_noncash || 0)}. Ubah bila hasil di aplikasi QRIS/EDC berbeda.</div></div>
     <div id="diffBox"></div><div class="form-row" style="margin-top:12px"><label class="lbl" for="closeNote">Catatan (opsional)</label><input class="field" id="closeNote" maxlength="240" placeholder="mis. kurang seribu, kembalian"></div>
     <button class="btn big block" data-act="closeShift">Tutup kasir</button></div></div>${hist}`;
-  $('#countCash').addEventListener('input', e => {
-    const v = digits(e.target.value); if (v === '') { $('#diffBox').innerHTML = ''; return; }
-    const diff = parseInt(v, 10) - sh.expected_cash;
-    $('#diffBox').innerHTML = `<div class="change ${diff === 0 ? '' : 'bad'}"><span>${diff === 0 ? 'Uang pas ✓' : diff > 0 ? 'Lebih' : 'Kurang'}</span><span>${diff === 0 ? '' : rp(Math.abs(diff))}</span></div>`;
-  });
+  const hitungSelisih = () => {
+    const v = digits($('#countCash').value), v2 = digits($('#countNonCash').value);
+    let html = '';
+    if (v !== '') {
+      const d = parseInt(v, 10) - sh.expected_cash;
+      html += `<div class="change ${d === 0 ? '' : 'bad'}"><span>${d === 0 ? 'Uang laci pas ✓' : d > 0 ? 'Laci lebih' : 'Laci kurang'}</span><span>${d === 0 ? '' : rp(Math.abs(d))}</span></div>`;
+    }
+    if (v2 !== '') {
+      const d2 = parseInt(v2, 10) - (sh.expected_noncash || 0);
+      html += `<div class="change ${d2 === 0 ? '' : 'bad'}"><span>${d2 === 0 ? 'QRIS/transfer pas ✓' : d2 > 0 ? 'QRIS/transfer lebih' : 'QRIS/transfer kurang'}</span><span>${d2 === 0 ? '' : rp(Math.abs(d2))}</span></div>`;
+    }
+    $('#diffBox').innerHTML = html;
+  };
+  $('#countCash').addEventListener('input', hitungSelisih);
+  $('#countNonCash').addEventListener('input', hitungSelisih);
 }
 function zReportSheet(sh) {
   const html = `<div class="receipt"><h4>LAPORAN TUTUP KASIR</h4><div class="c">${esc(state.settings.outlet_name)}</div><hr><div>Kasir: ${esc(sh.cashier)}</div><div>Buka : ${esc(fmtDateTime(sh.opened_at))}</div><div>Tutup: ${esc(fmtDateTime(sh.closed_at))}</div><hr>
-    <div class="l"><span>Uang awal</span><span>${nf.format(sh.opening_cash)}</span></div><div class="l"><span>Penjualan tunai</span><span>${nf.format(sh.cash_sales)}</span></div><div class="l b"><span>Seharusnya</span><span>${nf.format(sh.expected_cash)}</span></div><div class="l"><span>Dihitung</span><span>${nf.format(sh.counted_cash)}</span></div><div class="l b"><span>Selisih</span><span>${sh.difference > 0 ? '+' : ''}${nf.format(sh.difference)}</span></div><hr>
+    <div class="l"><span>Uang awal</span><span>${nf.format(sh.opening_cash)}</span></div><div class="l"><span>Penjualan tunai</span><span>${nf.format(sh.cash_sales)}</span></div><div class="l b"><span>Seharusnya (tunai)</span><span>${nf.format(sh.expected_cash)}</span></div><div class="l"><span>Dihitung (tunai)</span><span>${nf.format(sh.counted_cash)}</span></div><div class="l b"><span>Selisih tunai</span><span>${sh.difference > 0 ? '+' : ''}${nf.format(sh.difference)}</span></div><hr>
+    <div class="l"><span>Non-tunai (QRIS/transfer)</span><span>${nf.format(sh.expected_noncash || 0)}</span></div><div class="l"><span>Dihitung non-tunai</span><span>${nf.format(sh.counted_noncash || 0)}</span></div><div class="l b"><span>Selisih non-tunai</span><span>${(sh.difference_noncash || 0) > 0 ? '+' : ''}${nf.format(sh.difference_noncash || 0)}</span></div><hr>
     ${sh.by_method.map(x => `<div class="l"><span>${esc(METHOD_NAME(x.payment_method))} (${x.n})</span><span>${nf.format(x.total)}</span></div>`).join('')}<div class="l b"><span>Total jual</span><span>${nf.format(sh.sales_total)}</span></div>${sh.note ? `<hr><div>Catatan: ${esc(sh.note)}</div>` : ''}</div>`;
-  openSheet({ title: 'Kasir ditutup', body: `<div class="notice ${sh.difference === 0 ? 'ok' : 'bad'}" style="margin-bottom:12px"><b>${sh.difference === 0 ? 'Uang laci cocok ✓' : (sh.difference > 0 ? 'Uang lebih ' : 'Uang kurang ') + rp(Math.abs(sh.difference))}</b></div><div class="receipt-preview ${state.settings.receipt_width === '80' ? 'w80' : ''}">${html}</div>`,
+  openSheet({ title: 'Kasir ditutup', body: `<div class="notice ${sh.difference === 0 && !sh.difference_noncash ? 'ok' : 'bad'}" style="margin-bottom:12px"><b>${sh.difference === 0 ? 'Uang laci cocok ✓' : (sh.difference > 0 ? 'Uang lebih ' : 'Uang kurang ') + rp(Math.abs(sh.difference))}${sh.difference_noncash ? ' · QRIS/transfer ' + (sh.difference_noncash > 0 ? 'lebih ' : 'kurang ') + rp(Math.abs(sh.difference_noncash)) : ''}</b></div><div class="receipt-preview ${state.settings.receipt_width === '80' ? 'w80' : ''}">${html}</div>`,
     footer: '<button class="btn ghost" data-print>Cetak</button><button class="btn" data-done>Selesai</button>', onMount: s => { s.q('[data-print]').onclick = () => printHTML(html); s.q('[data-done]').onclick = () => s.close(); } });
 }
 
@@ -963,6 +1441,22 @@ function productSheet(p) {
         draw(); await saveMods('custom');
       });
       s.q('[data-hide]')?.addEventListener('click', async () => { try { await api('/api/products/' + encodeURIComponent(p.id), { method: 'PUT', body: { active: !p.active } }); s.close(); toast(p.active ? 'Menu disembunyikan' : 'Menu ditampilkan lagi', 'ok'); state.products = []; SUBVIEWS.menu(); } catch (e) { toast(e.message, 'bad'); } });
+      if (p) api(`/api/products/${encodeURIComponent(p.id)}/saran`).then(r => {
+        const it = r.item || {};
+        const pasang = (name, teks, label) => {
+          if (!teks) return;
+          const input = s.q(`[name=${name}]`); if (!input) return;
+          const row = input.closest('.form-row'); if (!row) return;
+          const box = document.createElement('div');
+          box.className = 'saran-box';
+          box.innerHTML = '<span class="saran-teks"></span><button type="button" class="btn ghost sm">Pakai</button>';
+          box.querySelector('.saran-teks').textContent = `✨ Saran ${label}: ` + teks;
+          box.querySelector('button').onclick = () => { input.value = teks; input.dispatchEvent(new Event('input')); toast('Saran diisi — periksa lalu simpan', 'ok'); };
+          row.appendChild(box);
+        };
+        pasang('variant', it.short, 'keterangan');
+        pasang('description', it.description, 'deskripsi');
+      }).catch(() => { });
       draw();
     },
     onSubmit: async (v, s) => {
@@ -1061,10 +1555,11 @@ async function toJpegFull(file, max = 1000) {
 SUBVIEWS.atur = async () => {
   const [{ settings: st }, bk] = await Promise.all([api('/api/settings'), api('/api/admin/backups')]); state.settings = st;
   $('#sub').innerHTML = `<div class="grid g2">
+    <div class="card"><h3>Printer Bluetooth RPP02N</h3><p class="muted" style="margin-top:0">Jalur cetak langsung untuk tablet Android: Cleanter menghubungkan printer Bluetooth Classic (SPP) dan menerima nota dari kasir. Pasangkan RPP02N di Bluetooth Android, lalu pilih RPP02N di Cleanter.</p><div class="stack"><a class="btn ghost" href="https://play.google.com/store/apps/details?id=id.cleancode.cleanter" target="_blank" rel="noopener">Pasang / buka Cleanter</a><button class="btn" data-act="printerCheck">Cek koneksi RPP02N</button></div><p id="printerBridgeStatus" class="hint" role="status" aria-live="polite" style="margin-bottom:0">Belum dicek. Tekan tombol untuk memeriksa koneksi di tablet ini.</p></div>
     <div class="card"><h3>Info toko & struk</h3><div id="e1"></div>${[{ name: 'outlet_name', label: 'Nama toko', value: st.outlet_name }, { name: 'outlet_address', label: 'Alamat singkat', value: st.outlet_address }, { name: 'receipt_footer', label: 'Pesan di bawah struk', value: st.receipt_footer }, { name: 'outlet_contact', label: 'Kontak (struk & halaman pesan)', value: st.outlet_contact, maxlength: 120 }, { name: 'public_base_url', label: 'Alamat situs untuk QR meja (opsional)', value: st.public_base_url, maxlength: 120, placeholder: 'https://kopisawah.diginavastudio.com', hint: 'Kosongkan bila Anda membuka aplikasi lewat alamat publik toko. Isi hanya bila alamat yang tercetak di QR harus berbeda.' }, { name: 'receipt_width', label: 'Lebar kertas struk', type: 'seg', value: st.receipt_width, options: [['58', '58 mm'], ['80', '80 mm']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="info">Simpan</button></div>
     <div class="card"><h3>Pajak, layanan & pembulatan</h3><div class="notice" style="margin-bottom:12px">Bawaan: <b>semua 0%</b> (tidak ada pajak/layanan). Besaran pajak restoran (PB1) ditetapkan pemerintah daerah — <b>tarif dan kewajibannya belum saya verifikasi</b>; pastikan dulu ke konsultan pajak / Bapenda setempat sebelum mengaktifkan.</div><div id="e2"></div>
     ${[{ name: 'service_percent', label: 'Biaya layanan (%)', type: 'number', value: st.service_percent, hint: 'Dihitung dari harga setelah diskon.' }, { name: 'tax_percent', label: 'Pajak (%)', type: 'number', value: st.tax_percent, hint: 'Dihitung dari harga setelah diskon + biaya layanan. Harga di menu dianggap belum termasuk pajak.' }, { name: 'rounding', label: 'Pembulatan total', type: 'select', value: st.rounding, options: [['0', 'Tidak dibulatkan'], ['100', 'Ke Rp100 terdekat'], ['500', 'Ke Rp500 terdekat'], ['1000', 'Ke Rp1.000 terdekat']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="tax">Simpan</button></div>
-    <div class="card"><h3>Biaya kemasan (bawa pulang)</h3><div id="e4"></div>${[{ name: 'packing_fee', label: 'Biaya kemasan (Rp)', type: 'number', value: st.packing_fee, hint: 'Ditambahkan <b>otomatis</b> hanya saat kasir memilih <b>Bawa pulang</b> — kasir tidak perlu mengisi apa pun. Isi <b>0</b> bila tidak dipakai.' }, { name: 'packing_fee_per', label: 'Dihitung', type: 'seg', value: st.packing_fee_per, options: [['order', 'Per pesanan'], ['item', 'Per gelas / item']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="pack">Simpan</button></div>
+    <div class="card"><h3>Biaya kemasan (bawa pulang)</h3><div id="e4"></div>${[{ name: 'packing_fee', label: 'Biaya kemasan (Rp)', type: 'number', value: st.packing_fee, hint: 'Ditambahkan <b>otomatis</b> hanya saat kasir memilih <b>Bawa pulang</b> — kasir tidak perlu mengisi apa pun. <b>Minuman tidak dikenai</b> biaya kemasan. Isi <b>0</b> bila tidak dipakai.' }, { name: 'packing_fee_per', label: 'Dihitung', type: 'seg', value: st.packing_fee_per, options: [['order', 'Per pesanan'], ['item', 'Per item makanan']] }].map(fieldHTML).join('')}<button class="btn" data-act="saveSet" data-grp="pack">Simpan</button></div>
     <div class="card"><h3>Papan dapur & tiket</h3><div id="e5"></div>${fieldHTML({ name: 'kds_scale', label: 'Ukuran tulisan', type: 'seg', value: st.kds_scale, options: [['1', 'Normal'], ['1.25', 'Besar'], ['1.5', 'Lebih besar'], ['1.75', 'Sangat besar']], hint: 'Berlaku untuk papan dapur di layar <b>dan</b> tiket dapur yang dicetak. Sesuaikan dengan jarak pandang dapur.' })}<button class="btn" data-act="saveSet" data-grp="dapur">Simpan</button></div>
     <div class="card"><h3>Diskon oleh kasir</h3><div id="e3"></div>${fieldHTML({ name: 'kasir_max_discount_percent', label: 'Batas diskon kasir (%)', type: 'number', value: st.kasir_max_discount_percent, hint: '0 = kasir tidak boleh memberi diskon (hanya pemilik). Diskon selalu wajib disertai alasan.' })}<button class="btn" data-act="saveSet" data-grp="disc">Simpan</button></div>
     <div class="card"><h3>QRIS toko (untuk pelanggan di meja)</h3>${st.qris_image ? `<div class="center"><img src="${imgSrc(st.qris_image)}" alt="QRIS toko" style="max-width:220px;width:100%;border:1px solid var(--line);border-radius:12px"></div>` : '<p class="muted" style="margin-top:0">Belum ada. Unggah gambar QRIS toko Anda (dari aplikasi bank/e-wallet).</p>'}<div class="stack" style="margin-top:10px"><label class="btn ghost" for="qrisFile">📷 ${st.qris_image ? 'Ganti gambar QRIS' : 'Unggah gambar QRIS'}</label><input type="file" id="qrisFile" accept="image/*" class="hidden">${st.qris_image ? '<button class="btn danger sm" data-act="qrisDelete">Hapus gambar QRIS</button>' : ''}</div><p class="hint">Setelah pesanan diterima, pelanggan melihat tombol <b>Bayar dengan QRIS</b> di HP-nya. <b>Kasir tetap harus memeriksa uang masuk</b> sebelum mencatat bayar — halaman ini tidak memverifikasi pembayaran.</p></div>
@@ -1220,6 +1715,7 @@ async function pollOrders() {
   try {
     const s = await api('/api/orders/summary'), n = s.pending + s.calls;
     const b = $('#mejaBadge'); if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+    updateBillBadge(); updateReservasiBadge();
     document.title = n ? `(${n}) Kopi Sawah — Kasir` : 'Kopi Sawah — Kasir';
     if (sumPrev) {
       const newOrder = s.latest_pending && s.latest_pending > (sumPrev.latest_pending || '');
@@ -1271,7 +1767,7 @@ function tableQRSheet(t) {
 }
 
 /* ============================== aksi (klik) ============================== */
-const VIEWS = { home: viewHome, kasir: viewKasir, meja: viewMeja, pesanan: viewPesanan, laporan: viewLaporan, kelola: viewKelola, kas: viewKas };
+const VIEWS = { home: viewHome, kasir: viewKasir, meja: viewMeja, reservasi: viewReservasi, tagihan: viewTagihan, pesanan: viewPesanan, laporan: viewLaporan, kelola: viewKelola, kas: viewKas };
 const ACT = {
   reload: () => location.reload(),
   help: () => openSheet({ title: 'Bantuan singkat', wide: true, body: HELP_HTML, footer: '<button class="btn" data-done>Mengerti</button>', onMount: s => { s.q('[data-done]').onclick = () => s.close(); } }),
@@ -1291,7 +1787,8 @@ const ACT = {
     if (v === '') return $('#shiftErr').innerHTML = '<div class="notice bad" style="margin-bottom:12px">Isi jumlah uang tunai di laci dulu (isi 0 bila kosong).</div>';
     if (!await confirmSheet({ title: 'Tutup kasir?', text: 'Setelah ditutup, Anda tidak bisa mencatat penjualan sampai membuka kasir lagi.', ok: 'Ya, tutup kasir' })) return;
     el.disabled = true;
-    try { const r = await api('/api/shifts/close', { method: 'POST', body: { counted_cash: parseInt(v, 10), note: $('#closeNote').value.trim() } }); state.shift = null; updateShiftChip(); zReportSheet(r.shift); go('kas'); }
+    const v2 = digits($('#countNonCash').value);
+    try { const r = await api('/api/shifts/close', { method: 'POST', body: { counted_cash: parseInt(v, 10), counted_noncash: v2 === '' ? null : parseInt(v2, 10), note: $('#closeNote').value.trim() } }); state.shift = null; updateShiftChip(); zReportSheet(r.shift); go('kas'); }
     catch (e) { $('#shiftErr').innerHTML = `<div class="notice bad" style="margin-bottom:12px">${esc(e.message)}</div>`; el.disabled = false; }
   },
   cat: el => { state.cat = el.dataset.c; $$('#cats button').forEach(b => b.classList.toggle('on', b === el)); drawGrid(); },
@@ -1312,7 +1809,7 @@ const ACT = {
   },
   qty: el => changeQty(el.dataset.key, parseInt(el.dataset.d, 10)),
   clearCart: async () => { if (await confirmSheet({ title: 'Kosongkan pesanan?', text: 'Semua item di pesanan ini akan dihapus.', ok: 'Ya, kosongkan', danger: true })) { state.cart = []; saveCart(); drawCart(); } },
-  openCart: () => { if (state.cart.length) state.cartSheet = openSheet({ title: 'Pesanan', body: cartInner(true), onClose: () => { state.cartSheet = null; } }); },
+  openCart: () => { if (state.cart.length) state.cartSheet = openSheet({ title: 'Pesanan', body: cartInner(true), bodyClass: 'cart-sheet-body', footer: cartSheetFooter(), footerClass: 'cart-sheet-footer', sheetClass: state.cart.length > 5 ? 'cart-sheet-long' : '', onClose: () => { state.cartSheet = null; } }); },
   checkout: checkoutSheet,
   sale: el => saleSheet(el.dataset.id).catch(e => toast(e.message, 'bad')),
   dayShift: el => { const t = todayWIB(), n = addDays(state.pesananDate || t, parseInt(el.dataset.d, 10)); state.pesananDate = n > t ? t : n; go('pesanan'); },
@@ -1341,6 +1838,16 @@ const ACT = {
       onSubmit: async (v, f) => { await api('/api/orders/move', { method: 'POST', body: { order_ids: list.map(o => o.id), to_table_id: parseInt(v.to, 10) } }); f.close(); toast('Pesanan dipindahkan', 'ok'); viewMeja(); } });
   },
   qrisDelete: async () => { if (!await confirmSheet({ title: 'Hapus gambar QRIS?', text: 'Pelanggan tidak akan melihat tombol bayar QRIS lagi.', ok: 'Ya, hapus', danger: true })) return; try { await api('/api/settings/qris', { method: 'DELETE' }); toast('Gambar QRIS dihapus', 'ok'); SUBVIEWS.atur(); } catch (e) { toast(e.message, 'bad'); } },
+  printerCheck: async el => {
+    const box = $('#printerBridgeStatus'); el.disabled = true; box.textContent = 'Memeriksa koneksi lokal…';
+    try {
+      const data = await KopiSawahPrinter.health(), p = data.printer || {};
+      if (p.connected && String(p.name || '').toUpperCase().includes('RPP02N')) box.textContent = `Terhubung ke ${p.name}. Siap mencetak.`;
+      else if (p.connected) box.textContent = `Terhubung ke ${p.name || 'printer lain'}, bukan RPP02N. Pilih RPP02N di Cleanter.`;
+      else box.textContent = 'Cleanter aktif, tetapi RPP02N belum tersambung. Pilih printer di Cleanter.';
+    } catch (e) { box.textContent = e.message; }
+    finally { el.disabled = false; }
+  },
   backupNow: async el => { el.disabled = true; try { await api('/api/admin/backups/run', { method: 'POST' }); toast('Cadangan dibuat', 'ok'); SUBVIEWS.atur(); } catch (e) { toast(e.message, 'bad'); el.disabled = false; } },
   quickPhoto: () => loadProducts(true).then(() => quickPhotoSheet()),
   soundToggle: () => {
@@ -1429,7 +1936,7 @@ document.addEventListener('keydown', e => {
 async function boot() {
   try {
     const s = await api('/api/auth/status');
-    if (s.setup_required) return setupScreen();
+    if (s.setup_required) return setupScreen(!!s.setup_tanpa_kode);
     if (!s.user) { state.staff = s.staff || []; return loginScreen(); }
     Object.assign(state, { me: s.user, settings: s.settings, methods: s.payment_methods, orderTypes: s.order_types });
     state.tanpaLogin = !!s.tanpa_login;

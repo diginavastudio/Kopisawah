@@ -1,9 +1,9 @@
 /* Service worker Kopi Sawah: membuat aplikasi kasir tetap bisa DIBUKA saat internet putus.
  * Hanya menyimpan berkas tampilan (HTML/CSS/JS/gambar/klip suara). Data (API) TIDAK pernah disimpan di sini. */
-const VER = 'ks-shell-v3';   // v3: klip suara diperbaiki (awal kata tidak terpotong)
+const VER = 'ks-shell-v13';  // v13: tombol bayar tetap terlihat pada keranjang panjang
 const AUDIO = ['kepala_pesan', 'ekor_panggil', 'ekor_bill', 'tes'];
 for (let i = 1; i <= 50; i++) AUDIO.push('meja_' + i);
-const SHELL = ['/', '/manifest.webmanifest', '/static/app.css', '/static/app.js', '/static/vendor/qrcode.js',
+const SHELL = ['/', '/manifest.webmanifest', '/static/app.css', '/static/app.js', '/static/printer-bridge.js', '/static/vendor/qrcode.js',
   '/static/images/logo-badge.png', '/static/images/icon-192.png', '/static/images/icon-512.png', '/static/images/apple-touch-icon.png']
   .concat(AUDIO.map(n => '/static/audio/' + n + '.mp3'));
 

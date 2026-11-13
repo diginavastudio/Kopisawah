@@ -717,3 +717,261 @@ dan tidak jelas.
 
 **Hasil:** 54 klip, **667 KB**; uji API **22/22**, uji layar suara **9/9**.
 Berkas contoh sebelum/sesudah ada di folder kerja Digi (`demo-suara-kore-diperbaiki.mp3`).
+
+## 53. Cetak Bluetooth RPP02N dari tablet Android (3 November 2026)
+
+- Menambahkan tombol **Cetak Bluetooth RPP02N** pada struk baru dan nota lama, serta kartu
+  **Printer Bluetooth RPP02N** di Kelola → Pengaturan.
+- Integrasi memakai Cleanter Android di `http://localhost:9100`: aplikasi memeriksa status printer
+  saat kasir menekan tombol (tidak melakukan permintaan otomatis saat halaman dibuka), lalu mengirim
+  isi nota ESC/POS ke printer bernama RPP02N. Header CSP hanya menambahkan izin koneksi ke alamat
+  loopback itu; tombol **Cetak dialog** tetap tersedia sebagai cadangan.
+- Setup tablet: pasangkan RPP02N di Bluetooth Android, pasang Cleanter, pilih RPP02N di Cleanter,
+  izinkan akses lokal pada permintaan Chrome bila muncul, lalu gunakan **Cek koneksi RPP02N**.
+- Berkas baru: `static/printer-bridge.js`, `tests/test_printer_bridge.js`. Service worker dinaikkan ke
+  `ks-shell-v4` agar modul bridge baru ikut cache aplikasi.
+- Batas: jalur ini untuk Android + Bluetooth Classic/SPP + ESC/POS; tidak membuktikan BLE, iOS,
+  Windows, atau semua printer. Uji unit hanya memakai bridge tiruan; **belum ada uji cetak fisik**.
+- Cadangan sebelum ubahan: `/srv/backup-ubah/20261103-142504` (enam berkas yang sudah ada).
+
+## 54. Metode pemesanan: Piutang, Buat Pesanan, Gabungkan Pesanan (4 November 2026)
+
+**Permintaan pemilik:** di layar Pembayaran ditambahkan pilihan metode pemesanan seperti aplikasi kasir lain —
+Bayar Langsung, Piutang, Buat Pesanan, Gabungkan Pesanan — diletakkan di bagian bawah layar.
+Gabungkan Pesanan dipakai saat pelanggan sudah memesan dan belum membayar, lalu menambah pesanan:
+semua pesanan masuk ke satu tagihan dan satu nota.
+
+**Keputusan rancangan:** tagihan yang belum dibayar **tidak** ditulis ke tabel `sales`, tetapi ke tabel baru
+`open_bills` + `open_bill_items`. Alasannya: seluruh laporan yang ada menghitung `sales` dengan saringan
+`status != 'void'`, sehingga baris "belum dibayar" di `sales` akan langsung menambah omzet. Dengan tabel
+terpisah, omzet hanya bertambah saat tagihan dilunasi (satu baris `sales` baru), dan laporan lama tidak diubah.
+
+**Perubahan:**
+- Skema: `open_bills` (jenis `pesanan`/`piutang`, status `open`/`paid`/`void`, nomor `TG…`, pemilik kasir/shift,
+  request_id unik) dan `open_bill_items` (salinan nama/harga/pilihan saat dipesan).
+- Rute baru: `GET /api/bills`, `GET /api/bills/<id>`, `POST /api/bills/<id>/items` (gabung),
+  `POST /api/bills/<id>/settle` (lunasi → satu nota), `POST /api/bills/<id>/kind` (tukar pesanan ↔ piutang),
+  `POST /api/bills/<id>/void` (pemilik).
+- `POST /api/sales` menerima `order_method`: `langsung` (bawaan, perilaku lama), `pesanan`, `piutang`.
+  Kunci idempoten `request_id` berlaku untuk tagihan juga.
+- Stok dikurangi sekali saat tagihan dibuat/digabung, dikembalikan saat tagihan dibatalkan; pelunasan tidak
+  memotong stok dua kali.
+- Tampilan: kartu metode di bawah "Cara bayar", tab **Tagihan** (badge jumlah), layar bayar tagihan, cetak tagihan.
+  `app.css` menambah `.om-grid/.om`; service worker dinaikkan ke `ks-shell-v5`.
+- Laporan: `/api/reports/summary` menambah `open_bills` (jumlah/nilai per jenis). Laporan kas menampilkan
+  peringatan bila shift ditutup dengan tagihan terbuka.
+
+**Uji:** `python3 -m unittest discover -s tests -v` → **23/23 lulus** (termasuk `test_23` baru: tagihan tidak
+menambah omzet, gabung dua pesanan, satu nota saat lunas, piutang, batal oleh pemilik, kasir ditolak).
+Uji layar baru `tests/browser_tagihan.js` → **13/13 lulus**, 0 galat JS (Chromium, DB sementara).
+Belum diuji: perangkat kasir sungguhan (Android/tablet), cetak fisik tagihan, dan tagihan yang melewati tutup kasir.
+
+**Cadangan sebelum ubahan:** `/root/backup-kopi-sawah/20261104-2345/kopi-sawah.sqlite3` dan
+`/srv/backup-ubah/20261104-2345/kode-sebelum-metode-pemesanan.tar.gz`.
+**Cara kembali:** hentikan layanan, pulihkan `app.py` + `static/app.js` + `static/app.css` + `static/sw.js`
+dari arsip di atas, lalu `systemctl restart kopi-sawah`. Tabel `open_bills` boleh dibiarkan (tidak dipakai kode lama).
+
+## 55. Login pemilik/kasir aktif + pemilik bisa menghapus transaksi (5 November 2026)
+
+**Permintaan pemilik:** halaman login untuk pemilik dan kasir, siap dipakai uji coba langsung; semua transaksi
+lama dihapus; pemilik/admin bisa menghapus transaksi.
+
+**Perubahan:**
+- `/etc/systemd/system/kopi-sawah.service`: `KOPI_SAWAH_TANPA_LOGIN=1` → `0`, lalu `daemon-reload` + restart.
+  Alur login yang sudah ada di kode kini dipakai: layar **Selamat datang** (buat akun pemilik + PIN sendiri)
+  → layar **Masuk** (ketuk nama → PIN). Kasir ditambahkan pemilik lewat Kelola → Tim → Tambah anggota.
+- Pesan startup di `main()` kini `flush=True`; sebelumnya KODE PENYIAPAN tertahan buffer sehingga tidak muncul
+  di `journalctl` saat mode login dipakai.
+- Rute baru `DELETE /api/sales/<id>` (khusus pemilik): hapus permanen, alasan wajib, stok dikembalikan,
+  pesanan meja terkait kembali `served`, tagihan yang notanya dihapus kembali `open`, jejak `hapus_transaksi`
+  di `audit_log`. Tombol **Hapus permanen** ada di detail nota (hanya pemilik).
+- Data uji dikosongkan: **13 nota lunas Rp761.000**, 3 nota batal, 2 tagihan, 9 pesanan QR, 5 shift, dan
+  1 akun otomatis "Kasir". Menu (124), meja (50), pengaturan, dan `audit_log` dipertahankan.
+
+**Cadangan sebelum penghapusan:** `/root/backup-kopi-sawah/20261105-0015/` (salinan DB + `ekspor-transaksi.json`),
+unit lama `/srv/backup-ubah/20261105-0015/kopi-sawah.service.bak`.
+**Cara kembali:** `systemctl stop kopi-sawah`; salin DB cadangan ke `/var/lib/kopi-sawah/kopi-sawah.sqlite3`;
+kembalikan unit lama (TANPA_LOGIN=1); `systemctl daemon-reload && systemctl start kopi-sawah`.
+
+**Uji:** API **24/24 lulus** (termasuk `test_24`: kasir 403, alasan wajib, hapus kedua kali 404, omzet berkurang,
+audit tercatat, tagihan kembali terbuka). Uji layar **14/14 lulus**, 0 galat JS (termasuk hapus transaksi dari layar).
+**Belum diuji:** login pada perangkat kasir sungguhan (HP/tablet) dan PIN yang dibuat pemilik.
+
+## 56. Penyiapan awal tanpa kode penyiapan (5 November 2026)
+
+**Permintaan pemilik:** hilangkan kolom KODE PENYIAPAN pada layar penyiapan.
+
+**Perubahan:**
+- Unit systemd: `KOPI_SAWAH_SETUP_TANPA_KODE=1`. `r_auth_setup` melewati pemeriksaan kode bila aktif;
+  `/api/auth/status` mengirim `setup_tanpa_kode`; layar penyiapan menyembunyikan kolom kode dan menampilkan
+  peringatan bahwa siapa pun yang membuka halaman bisa membuat akun pemilik.
+- Log startup mencetak "kode penyiapan DIMATIKAN" alih-alih kode.
+
+**Risiko yang harus disebut:** selama belum ada akun, siapa pun yang membuka situs bisa mendaftarkan diri
+sebagai pemilik. Setelah akun pemilik dibuat, pendaftaran ditutup otomatis (409). Bila database pernah
+dikosongkan lagi, matikan dulu flag ini (`=0`) atau siapkan akun sebelum situs dibuka.
+
+**Uji:** `SetupTanpaKodeTest` (server terpisah, DB sementara): status melaporkan `setup_tanpa_kode`, setup tanpa
+kode → 201, pendaftaran kedua → 409. Total suite **25/25 lulus**.
+**Cadangan unit:** `/srv/backup-ubah/20261105-0015/kopi-sawah.service.sebelum-tanpa-kode`.
+
+## 57. Tiket dapur dipisah per stasiun: MAKANAN / MINUMAN / CAMILAN (5 November 2026)
+
+**Permintaan pemilik:** dapur terbagi tiga (makanan, minuman, camilan); tiket dapur harus punya batas jelas
+antara ketiga kategori itu.
+
+**Perubahan:**
+- `ticketHTML()` di `static/app.js` mengelompokkan item menjadi **MAKANAN**, **MINUMAN**, **CAMILAN**.
+  Tiap kelompok diberi judul tebal dengan garis putus-putus di atas dan bawah (`.receipt .station` di `app.css`).
+  Kelompok yang tidak berisi item tidak dicetak.
+- Pemetaan kategori → stasiun: `Kopi`/`Minuman`/`Wedangan` → MINUMAN; `Camilan` → CAMILAN;
+  `Makanan`/`Lauk`/`Paket`/`Sup`/`Sayuran` → MAKANAN; `Add-on` → MINUMAN bila nama memuat kata "es"/"air"
+  (mis. Air Es, Es Batu), selain itu MAKANAN (nasi, sambal, telur).
+- Service worker dinaikkan ke `ks-shell-v6` agar perangkat memuat ulang berkas tampilan.
+
+**Uji:** uji layar baru `tests/browser_tiket_dapur.js` → **6/6 lulus** (urutan tiga stasiun, Nasi Goreng di MAKANAN,
+Air Es di MINUMAN, Bakwan di CAMILAN, tidak dobel, nota minuman saja hanya mencetak satu stasiun).
+Seluruh suite API tetap **25/25 lulus**.
+**Batas:** tombol **Cetak Bluetooth RPP02N** masih mencetak nota pelanggan, bukan tiket dapur — tiket dapur dicetak
+lewat tombol **Tiket dapur** (dialog cetak). Belum diuji pada printer fisik.
+
+## 58. Saran draf keterangan & deskripsi menu + Lauk tanpa nasi (5 November 2026)
+
+**Permintaan pemilik:** setiap kolom isian keterangan di formulir menu diberi saran AI; kategori **Lauk**
+adalah lauk saja — semua menunya **tanpa nasi**.
+
+**Perubahan:**
+- Tabel baru `product_saran` (saran `short` + `description` per menu, `sumber`, `dibuat_at`), dibuat di
+  `init_db` dan diisi oleh `tools/saran-menu.py`.
+- Rute baru `GET /api/products/<id>/saran` (khusus pemilik; 403 untuk kasir, 404 untuk menu tak dikenal).
+- Formulir menu: di bawah kolom **Keterangan singkat** dan **Deskripsi** muncul kotak `✨ Saran: …` dengan
+  tombol **Pakai** yang mengisi kolom (tidak menyimpan otomatis — pemilik tetap memeriksa lalu menyimpan).
+- Data: **123 saran** untuk seluruh menu aktif; **102 deskripsi** baru untuk menu yang belum punya;
+  **29 deskripsi Lauk diperbaiki** karena menyebut nasi ("plus nasi", "bersama nasi putih", "pilih nasi atau
+  frenchfries"). Sekarang 0 deskripsi Lauk yang menyebut nasi. Saran keterangan untuk Lauk: "Tanpa nasi".
+- Service worker `ks-shell-v7`.
+
+**Sifat saran:** draf ditulis Digi (AI) dan disimpan di database, bukan panggilan AI saat tombol diklik —
+jadi tetap bekerja tanpa internet dan tidak mengirim data menu ke layanan luar. Menu yang ditambahkan
+kemudian belum punya draf sampai `tools/saran-menu.py` diisi entri baru.
+
+**Uji:** suite API **26/26 lulus** (termasuk `test_25`: endpoint hanya pemilik, 404 untuk menu tak dikenal).
+Uji layar `tests/browser_saran.js` **5/5 lulus**: dua kotak saran muncul, saran Lauk "Tanpa nasi",
+deskripsi Lauk tanpa kata nasi, tombol Pakai mengisi kolom. Deskripsi baru juga terbaca di halaman
+pelanggan (`/api/public/menu?t=…`).
+
+**Cadangan sebelum ubahan data:** `/root/backup-kopi-sawah/20261105-0045/kopi-sawah.sqlite3`.
+**Cara kembali:** salin cadangan itu ke `/var/lib/kopi-sawah/kopi-sawah.sqlite3` lalu restart layanan;
+tabel `product_saran` boleh dibiarkan.
+
+## 59. Reservasi meja + pre-order dari rumah, tautan pendek /r (5 November 2026)
+
+**Permintaan pemilik:** terapkan rancangan reservasi meja + pre-order, dan buat tautan pendek khusus reservasi.
+
+**Yang dibangun:**
+- Tabel `reservations` + `reservation_items`. Status: `baru`, `ubah`, `disetujui`, `ditolak`, `datang`,
+  `selesai`, `batal`. Nomor `RSV-YYMMDD-###`, token acak untuk halaman status pelanggan.
+- Halaman publik **/reservasi** (tanpa login): tanggal, jam, jumlah orang, nama, HP, catatan, dan pre-order
+  menu (boleh dikosongkan). Jam tersedia mengikuti pengaturan; H-1 dan batas jam diberlakukan di server.
+- Tab **Reservasi** di kasir (badge jumlah yang menunggu): Setujui, Tawar jam, Tolak, Tamu datang, Selesai,
+  Batalkan, DP, dan Tiket. Menawar jam lain mengubah status jadi `ubah`; pelanggan menerima/menolak dari
+  halaman statusnya.
+- Tiket dapur reservasi memakai pengelompokan stasiun (MAKANAN/MINUMAN/CAMILAN); tombol Tiket mencetak dan
+  menandai `printed_at`. Pengingat cetak masih manual (belum mencetak otomatis).
+- Pengaturan (khusus pemilik) lewat tombol **Atur** di tab Reservasi: aktif, jam mulai/akhir, interval, H-,
+  batas jam pesan, toleransi, DP, maksimal orang, menit pengingat tiket, info pembayaran.
+- Tautan: **/r** (302 ke /reservasi) di domain sendiri. bit.ly tidak dipakai karena perlu akun/token; sebagai
+  jalan pintas dibuat tautan pihak ketiga `is.gd/kopisawah` dan `tinyurl.com/kopisawah` yang menunjuk halaman sama.
+- Reservasi **tidak** menambah omzet (disimpan di tabel sendiri, bukan `sales`).
+
+**Uji:** suite API **27/27 lulus** (`test_26_reservasi_meja_dan_preorder`: kirim, idempoten, setujui, tawar jam
+lalu pelanggan menerima, tolak, datang/selesai, jam tak valid ditolak, omzet tidak berubah). Uji layar
+`tests/browser_reservasi.js` **6/6 lulus**: /r membuka halaman, reservasi terkirim, status menunggu, kasir
+melihat & menyetujui, pelanggan melihat "Disetujui".
+
+**Batas:** belum ada kuota otomatis, pembayaran online, atau pengingat otomatis; tautan pihak ketiga tidak
+bisa diubah/dihapus tanpa akun di layanan itu.
+
+## 60. Reservasi: tersimpan di perangkat, status memperbarui sendiri, tombol WhatsApp (5 November 2026)
+
+**Keluhan pemilik:** pelanggan yang keluar dari tautan lalu membukanya lagi kembali ke formulir kosong; status
+baru terlihat setelah di-refresh.
+
+**Perbaikan:**
+- Token reservasi disimpan di perangkat (localStorage, 5 terakhir). Membuka `/reservasi` tanpa `?t=` kini
+  menampilkan reservasi tersimpan; `?baru=1` memaksa formulir baru (tombol "Buat reservasi baru").
+- Halaman status memperbarui sendiri setiap 20 detik selama status masih `baru`, `ubah`, atau `disetujui` —
+  pelanggan tidak perlu me-refresh.
+- Pengaturan baru `reservasi_wa` (nomor WhatsApp kasir/pemilik, dinormalkan ke 62…). Tombol
+  **Kirim ke WhatsApp kasir** di halaman pelanggan (pesan berisi kode, tanggal, jam, jumlah orang) dan tombol
+  **WA** di daftar reservasi kasir (pesan siap tulis menyesuaikan status: baru/disetujui/tawar jam/ditolak/datang/batal).
+  Keduanya membuka WhatsApp dengan pesan terisi — **bukan** pengiriman otomatis.
+- Nomor awal diisi `6285117259677` (nomor reservasi outlet yang sudah dipakai di pengaturan); bisa diubah di
+  Reservasi → Atur.
+- Service worker `ks-shell-v10`.
+
+**Uji:** API **27/27 lulus** (nomor WA dinormalkan 08→62). Uji layar `tests/browser_reservasi.js` **8/8 lulus**,
+termasuk "buka tautan lagi menampilkan reservasi tersimpan" dan tombol WA menunjuk nomor yang benar.
+
+**Batas:** pesan tidak terkirim otomatis; pelanggan/kasir menekan tombol lalu mengirim dari WhatsApp masing-masing.
+Pengiriman otomatis butuh layanan WhatsApp API tersendiri (biaya dan risiko nomor) — keputusan pemilik.
+
+## 61. Reservasi tiga langkah: data → pesanan → reservasi (5 November 2026)
+
+**Permintaan pemilik:** halaman pertama reservasi dibuat lebih menarik dan mudah; setelah terisi lanjut ke
+halaman ke-2 (pesanan), halaman ke-3 berisi reservasi. Hapus kalimat pengantar. Tanggal mulai hari ini.
+Jam terisi otomatis 11:00, atau +1 jam dari jam sekarang bila sudah lewat. Jumlah orang tanpa batas
+(rapat/hajatan). Kolom lain tetap.
+
+**Perubahan:**
+- `reservasi.js` ditulis ulang menjadi wizard tiga langkah dengan penanda **1 Data · 2 Pesanan · 3 Reservasi**.
+  Data disimpan di memori antar langkah; tombol "Ubah data"/"Ubah pesanan" untuk kembali.
+- Kalimat "Pilih tanggal dan jam datang…" dihapus dari halaman.
+- Tanggal: `reservasi_hari_min` bawaan **0** (hari ini boleh). `GET /api/public/reservasi/info` mengirim
+  `jam_min_hari_ini` = slot pertama ≥ sekarang+60 menit; bila tidak ada slot tersisa, `tanggal_min` otomatis besok.
+  Server menolak jam hari ini yang kurang dari sekarang+60 menit.
+- Jumlah orang: `reservasi_max_orang` bawaan **0 = tanpa batas** (batas teknis 1000). Kolom tidak lagi memasang
+  `max` bila tanpa batas.
+- Langkah 3 menampilkan ringkasan (tanggal, jam, orang, nama, WA, catatan, pesanan, perkiraan total) sebelum kirim.
+
+**Uji:** suite API **27/27 lulus** (uji jam hari ini memakai `jam_min_hari_ini`, tanggal "tawar jam" memakai besok
+agar tidak bergantung jam berjalan). Uji layar `tests/browser_reservasi.js` **9/9 lulus** (termasuk langkah 1→2→3
+dan ringkasan). Di situs hidup: tanggal awal 2026-11-05 (hari ini), jam awal 11:00, tanpa batas orang, langkah 2
+menampilkan 123 menu.
+
+## 62. Teks halaman reservasi dirapikan (5 November 2026)
+
+**Permintaan pemilik:**
+- Langkah 1: hapus "Rombongan besar (rapat, hajatan) tulis jumlah sebenarnya." dan catatan DP.
+- Langkah 3: hapus catatan DP dan "Kasir akan mengonfirmasi. Kalau jam itu penuh, kasir menawarkan jam lain lewat WhatsApp."
+- Halaman status: tambah "Pembayaran bisa di kasir, transfer DP atau QRIS. Konfirmasi pembayaran lewat WhatsApp".
+
+**Perubahan:**
+- `static/reservasi.js`: kedua catatan di langkah 1 dan dua catatan di langkah 3 dihapus. Halaman status menampilkan
+  info pembayaran dari pengaturan `reservasi_info_bayar` (hanya untuk status baru/ubah/disetujui/datang).
+- Teks bawaan `reservasi_info_bayar` diganti menjadi kalimat di atas; bisa diubah di Reservasi → Atur.
+
+**Uji:** uji layar `tests/browser_reservasi.js` **12/12 lulus** (memastikan catatan lama tidak muncul dan info
+pembayaran tampil di halaman status); suite API **27/27 lulus**. Di situs hidup: langkah 1 dan 3 bersih dari
+catatan lama, `info_bayar` memuat kalimat baru.
+
+## 63. Biaya kemasan hanya makanan + tutup kasir menghitung QRIS/transfer (5 November 2026)
+
+**Permintaan pemilik:** biaya kemasan (bawa pulang) hanya untuk makanan; minuman tidak dikenai. Tutup kasir
+harus memperhitungkan uang tunai di laci **dan** penerimaan QRIS/transfer.
+
+**Biaya kemasan:**
+- `app.py` memakai `FOOD_CATS = {Makanan, Lauk, Camilan, Paket, Sayuran, Sup}`. Hanya item berkategori itu yang
+  dihitung; minuman (Kopi, Minuman, Wedangan) dan Add-on (mis. air es) tidak dikenai.
+- `packing_amount()` menerima pasangan (kategori, jumlah); mode "Per pesanan" menagih sekali bila ada makanan,
+  mode "Per item makanan" mengalikan hanya jumlah makanan. Pratinjau di layar bayar memakai aturan yang sama.
+- Teks pengaturan diperbarui: "Minuman tidak dikenai biaya kemasan", pilihan "Per item makanan".
+
+**Tutup kasir:**
+- Kolom baru di `shifts`: `expected_noncash`, `counted_noncash`, `difference_noncash`.
+- `POST /api/shifts/close` menerima `counted_noncash` (bila kosong dianggap sama dengan seharusnya).
+- Layar Kas: kolom "QRIS/transfer diterima (Rp)" terisi otomatis dari penjualan non-tunai, selisih laci dan
+  selisih QRIS ditampilkan terpisah; laporan sementara, struk tutup kasir, dan riwayat kas menampilkan keduanya.
+
+**Uji:** suite API **28/28 lulus** (termasuk `test_08b_kemasan_hanya_makanan` dan tutup kasir dengan non-tunai);
+`tests/browser_ronde6.js` lulus termasuk pemeriksaan kolom QRIS/transfer dan selisih laci.

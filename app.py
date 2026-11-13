@@ -44,6 +44,9 @@ TZ_NAME = os.environ.get("KOPI_SAWAH_TZ", "Asia/Jakarta").strip() or "Asia/Jakar
 # Mode tanpa login: setiap permintaan dianggap dilakukan pemilik (sesuai permintaan pemilik,
 # login/PIN ditunda sampai desain web dinyatakan selesai).
 TANPA_LOGIN = os.environ.get("KOPI_SAWAH_TANPA_LOGIN", "0") == "1"
+# Penyiapan awal tanpa KODE PENYIAPAN (permintaan pemilik, 5 Nov 2026).
+# Risiko: selama belum ada akun, siapa pun yang membuka situs bisa membuat akun pemilik.
+SETUP_TANPA_KODE = os.environ.get("KOPI_SAWAH_SETUP_TANPA_KODE", "0") == "1"
 try:
     TZ = ZoneInfo(TZ_NAME)
 except Exception:
@@ -61,6 +64,9 @@ PIN_ITERATIONS = 200_000
 MAX_FAILS_USER, MAX_FAILS_IP, LOCK_SECONDS = 5, 20, 300
 SCHEMA_VERSION = 4
 
+# Biaya kemasan hanya untuk makanan. Minuman (gelas) dan Add-on (mis. air es) tidak dikenai.
+FOOD_CATS = {"Makanan", "Lauk", "Camilan", "Paket", "Sayuran", "Sup"}
+
 PAYMENT_METHODS = {"tunai": "Tunai", "qris": "QRIS", "debit": "Kartu Debit/Kredit",
                    "ewallet": "E-Wallet", "transfer": "Transfer Bank"}
 ORDER_TYPES = {"dine_in": "Makan di sini", "take_away": "Bawa pulang"}
@@ -76,12 +82,32 @@ SETTING_DEFAULTS = {
     "packing_fee": "1000",
     "packing_fee_per": "order",
     "kds_scale": "1.25",
+    # reservasi meja + pre-order dari rumah
+    "reservasi_aktif": "1",
+    "reservasi_jam_mulai": "11:00",
+    "reservasi_jam_akhir": "20:00",
+    "reservasi_interval": "30",
+    "reservasi_hari_min": "0",
+    "reservasi_batas_jam": "18:00",
+    "reservasi_toleransi": "15",
+    "reservasi_dp": "0",
+    "reservasi_max_orang": "0",
+    "reservasi_menit_tiket": "20",
+    "reservasi_info_bayar": "Pembayaran bisa di kasir, transfer DP atau QRIS. Konfirmasi pembayaran lewat WhatsApp.",
+    "reservasi_wa": "",
 }
+RESERVASI_STATUS = {"baru": "Menunggu konfirmasi", "ubah": "Menunggu jawaban pelanggan",
+                    "disetujui": "Disetujui", "ditolak": "Ditolak", "datang": "Sudah datang",
+                    "selesai": "Selesai", "batal": "Dibatalkan", "tidak_datang": "Tidak datang"}
 ORDER_OPEN = ("pending", "accepted", "ready", "served")
 ORDER_STATUS_NAME = {"pending": "Menunggu konfirmasi", "accepted": "Sedang diproses", "ready": "Siap",
                      "served": "Sudah disajikan", "paid": "Selesai", "rejected": "Ditolak", "cancelled": "Dibatalkan"}
 ORDER_NEXT = {"pending": ("accepted", "rejected", "cancelled"), "accepted": ("ready", "served", "cancelled"),
               "ready": ("served", "cancelled"), "served": ("cancelled",)}
+# Metode pemesanan: pembayaran sekarang, atau tagihan terbuka yang dibayar belakangan.
+ORDER_METHODS = {"langsung": "Bayar Langsung", "piutang": "Piutang", "pesanan": "Buat Pesanan", "gabung": "Gabungkan Pesanan"}
+BILL_KINDS = {"pesanan": "Buat Pesanan", "piutang": "Piutang"}
+BILL_STATUS_NAME = {"open": "Belum dibayar", "paid": "Lunas", "void": "Dibatalkan"}
 
 
 # --------------------------------------------------------------------------- util
@@ -451,6 +477,11 @@ def init_db():
             product_id TEXT NOT NULL REFERENCES products(id),
             group_id TEXT NOT NULL REFERENCES modifier_groups(id),
             sort INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (product_id, group_id));
+        -- Draf saran keterangan & deskripsi menu (ditulis Digi, dipakai tombol "Saran" di formulir menu).
+        CREATE TABLE IF NOT EXISTS product_saran (
+            product_id TEXT PRIMARY KEY REFERENCES products(id),
+            short TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
+            sumber TEXT NOT NULL DEFAULT 'digi', dibuat_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS dining_tables (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             label TEXT NOT NULL COLLATE NOCASE UNIQUE, token TEXT NOT NULL UNIQUE,
@@ -471,6 +502,54 @@ def init_db():
             unit_price INTEGER NOT NULL CHECK(unit_price > 0), quantity INTEGER NOT NULL CHECK(quantity > 0),
             line_total INTEGER NOT NULL, modifiers_summary TEXT NOT NULL DEFAULT '',
             modifiers_json TEXT NOT NULL DEFAULT '[]');
+        -- Tagihan terbuka: pesanan yang belum dibayar, atau piutang pelanggan.
+        -- Baru menjadi baris `sales` (omzet) saat dilunasi, jadi laporan tidak menghitung uang yang belum masuk.
+        CREATE TABLE IF NOT EXISTS open_bills (
+            id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('pesanan','piutang')),
+            status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','paid','void')),
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0,
+            business_date TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT 'dine_in', table_no TEXT NOT NULL DEFAULT '',
+            customer_name TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+            subtotal INTEGER NOT NULL DEFAULT 0, packing_fee INTEGER NOT NULL DEFAULT 0,
+            service_amount INTEGER NOT NULL DEFAULT 0, tax_amount INTEGER NOT NULL DEFAULT 0,
+            rounding_amount INTEGER NOT NULL DEFAULT 0,
+            total_amount INTEGER NOT NULL DEFAULT 0, item_count INTEGER NOT NULL DEFAULT 0,
+            user_id INTEGER NULL, shift_id INTEGER NULL, request_id TEXT,
+            sale_id TEXT, void_reason TEXT NOT NULL DEFAULT '', voided_by TEXT NOT NULL DEFAULT '',
+            voided_at TEXT NULL);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_bills_request ON open_bills(request_id) WHERE request_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_bills_status ON open_bills(status, created_at);
+        CREATE TABLE IF NOT EXISTS open_bill_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, bill_id TEXT NOT NULL REFERENCES open_bills(id),
+            product_id TEXT NOT NULL REFERENCES products(id),
+            name_snapshot TEXT NOT NULL, variant_snapshot TEXT NOT NULL DEFAULT '',
+            unit_price INTEGER NOT NULL CHECK(unit_price > 0), quantity INTEGER NOT NULL CHECK(quantity > 0),
+            line_total INTEGER NOT NULL CHECK(line_total > 0), modifiers_summary TEXT NOT NULL DEFAULT '',
+            modifiers_json TEXT NOT NULL DEFAULT '[]', cost_snapshot INTEGER NULL,
+            note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+        -- Reservasi meja + pre-order dari rumah. Kasir yang menyetujui/mengubah/menolak.
+        CREATE TABLE IF NOT EXISTS reservations (
+            id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'baru',
+            name TEXT NOT NULL, phone TEXT NOT NULL DEFAULT '',
+            party_size INTEGER NOT NULL DEFAULT 1,
+            tanggal TEXT NOT NULL, jam TEXT NOT NULL,
+            table_id INTEGER NULL, table_label TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '', kasir_note TEXT NOT NULL DEFAULT '',
+            proposed_jam TEXT NOT NULL DEFAULT '', proposed_table_label TEXT NOT NULL DEFAULT '',
+            change_reason TEXT NOT NULL DEFAULT '', reject_reason TEXT NOT NULL DEFAULT '',
+            subtotal INTEGER NOT NULL DEFAULT 0, total_estimate INTEGER NOT NULL DEFAULT 0,
+            dp_amount INTEGER NOT NULL DEFAULT 0, dp_method TEXT NOT NULL DEFAULT '', dp_note TEXT NOT NULL DEFAULT '',
+            printed_at TEXT NULL, arrived_at TEXT NULL, closed_at TEXT NULL,
+            request_id TEXT, user_id INTEGER NULL);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_reservasi_request ON reservations(request_id) WHERE request_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_reservasi_tanggal ON reservations(tanggal, jam);
+        CREATE TABLE IF NOT EXISTS reservation_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, reservation_id TEXT NOT NULL REFERENCES reservations(id),
+            product_id TEXT NOT NULL, name_snapshot TEXT NOT NULL, variant_snapshot TEXT NOT NULL DEFAULT '',
+            unit_price INTEGER NOT NULL, quantity INTEGER NOT NULL, line_total INTEGER NOT NULL,
+            modifiers_summary TEXT NOT NULL DEFAULT '', modifiers_json TEXT NOT NULL DEFAULT '[]');
         CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
             phone TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
@@ -487,6 +566,8 @@ def init_db():
         ensure_column(c, "sales", "business_date", "TEXT NOT NULL DEFAULT ''")
         ensure_column(c, "sales", "request_id", "TEXT")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_request ON sales(request_id) WHERE request_id IS NOT NULL")
+        ensure_column(c, "open_bill_items", "note", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(c, "open_bills", "revision", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(c, "sale_items", "modifiers_summary", "TEXT NOT NULL DEFAULT ''")
         ensure_column(c, "products", "stock_tracked", "INTEGER NOT NULL DEFAULT 0")
         # tambahan skema v3
@@ -497,6 +578,9 @@ def init_db():
         ensure_column(c, "products", "featured", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(c, "products", "custom_modifiers", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(c, "sales", "packing_fee", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(c, "shifts", "expected_noncash", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(c, "shifts", "counted_noncash", "INTEGER")
+        ensure_column(c, "shifts", "difference_noncash", "INTEGER")
         ensure_column(c, "sales", "order_ids", "TEXT NOT NULL DEFAULT ''")
         ensure_column(c, "sales", "customer_name", "TEXT NOT NULL DEFAULT ''")
         c.execute("CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_name) WHERE customer_name!=''")
@@ -511,6 +595,9 @@ def init_db():
                          ("void_reason", "TEXT NOT NULL DEFAULT ''"), ("voided_by", "TEXT NOT NULL DEFAULT ''"),
                          ("voided_at", "TEXT NULL")):
             ensure_column(c, "sales", col, ddl)
+        ensure_column(c, "open_bills", "service_amount", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(c, "open_bills", "tax_amount", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(c, "open_bills", "rounding_amount", "INTEGER NOT NULL DEFAULT 0")
         version = int((c.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone() or [0])[0])
         if version < SCHEMA_VERSION:
             c.execute("UPDATE sales SET status='paid' WHERE status='recorded_manual'")
@@ -681,7 +768,7 @@ def r_auth_status(req):
         total = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         out = {"setup_required": total == 0, "user": req.user,
                "payment_methods": PAYMENT_METHODS, "order_types": ORDER_TYPES,
-               "tanpa_login": TANPA_LOGIN}
+               "tanpa_login": TANPA_LOGIN, "setup_tanpa_kode": SETUP_TANPA_KODE}
         if req.user:
             out["settings"] = get_settings(c)
         elif total:
@@ -694,7 +781,7 @@ def r_auth_setup(req):
     throttle_check("setup:" + req.ip)
     d = req.data
     code = str(d.get("setup_code", "")).strip()
-    if not hmac.compare_digest(code, SETUP_CODE):
+    if not SETUP_TANPA_KODE and not hmac.compare_digest(code, SETUP_CODE):
         throttle_fail("setup:" + req.ip, MAX_FAILS_IP)
         raise ApiError(403, "Kode penyiapan salah. Lihat kode di log server (lihat README).")
     name = str(d.get("name", "")).strip()[:40]
@@ -867,6 +954,29 @@ def r_settings_put(req):
                 raise ApiError(400, "Ukuran tulisan papan dapur tidak dikenal.")
         elif key == "qris_image":
             continue    # hanya lewat /api/settings/qris
+        elif key.startswith("reservasi_"):
+            v = str(v).strip()
+            if key in ("reservasi_jam_mulai", "reservasi_jam_akhir", "reservasi_batas_jam"):
+                if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v):
+                    raise ApiError(400, "Jam reservasi harus format HH:MM.")
+            elif key == "reservasi_interval":
+                if not v.isdigit() or not 10 <= int(v) <= 120:
+                    raise ApiError(400, "Jarak antar jam 10 sampai 120 menit.")
+            elif key in ("reservasi_hari_min", "reservasi_toleransi", "reservasi_dp", "reservasi_max_orang", "reservasi_menit_tiket"):
+                if not v.isdigit() or int(v) > 1_000_000:
+                    raise ApiError(400, "Isi angka bulat untuk pengaturan reservasi.")
+                if key == "reservasi_max_orang" and int(v) > 1000:
+                    raise ApiError(400, "Maksimal orang 0 sampai 1000 (0 = tanpa batas).")
+            elif key == "reservasi_aktif":
+                v = "1" if v.lower() in ("1", "true", "ya", "on") else "0"
+            elif key == "reservasi_info_bayar":
+                v = v[:240]
+            elif key == "reservasi_wa":
+                v = re.sub(r"[^0-9]", "", v)
+                if v and not (8 <= len(v) <= 15):
+                    raise ApiError(400, "Nomor WhatsApp kasir harus 8-15 angka (mis. 6281234567890).")
+                if v.startswith("0"):
+                    v = "62" + v[1:]
         elif key == "public_base_url":
             v = str(v).strip().rstrip("/")[:120]
             if v and not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:\d{1,5})?", v):
@@ -953,6 +1063,20 @@ def r_product_add(req):
                    f.get("image_key", "none"), now(), f.get("description", ""), f.get("featured", 0)))
         audit(c, req.user, "tambah_menu", f"{f['name']} harga {f['price']}")
         return Resp(201, {"item": row_dict(c.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone())})
+
+
+@route("GET", r"/api/products/([^/]+)/saran", "owner")
+def r_product_saran(req):
+    """Saran keterangan/deskripsi untuk satu menu. Hanya draf — kasir tidak perlu."""
+    pid = req.match.group(1)
+    with db() as c:
+        if not c.execute("SELECT 1 FROM products WHERE id=?", (pid,)).fetchone():
+            raise ApiError(404, "Menu tidak ditemukan.")
+        s = c.execute("SELECT short,description,sumber,dibuat_at FROM product_saran WHERE product_id=?", (pid,)).fetchone()
+    if not s:
+        return {"item": {"short": "", "description": "", "ada": False}}
+    return {"item": {"short": s["short"], "description": s["description"], "sumber": s["sumber"],
+                     "dibuat_at": s["dibuat_at"], "ada": True}}
 
 
 @route("PUT", r"/api/products/([^/]+)", "owner")
@@ -1283,8 +1407,12 @@ def compute_discount(disc, subtotal, user, settings):
     return amount, reason
 
 
-def packing_amount(settings, order_type, item_qty):
-    """Biaya kemasan otomatis HANYA untuk pesanan dibawa pulang. Kasir tidak perlu mengisi apa pun."""
+def packing_amount(settings, order_type, lines):
+    """Biaya kemasan otomatis HANYA untuk bawa pulang dan HANYA untuk makanan.
+
+    Minuman (Kopi, Minuman, Wedangan) tidak dikenai biaya kemasan.
+    `lines` = pasangan (kategori, jumlah).
+    """
     if order_type != "take_away":
         return 0
     try:
@@ -1293,8 +1421,11 @@ def packing_amount(settings, order_type, item_qty):
         fee = 0
     if fee <= 0:
         return 0
+    qty = sum(max(0, int(q)) for cat, q in lines if (cat or "") in FOOD_CATS)
+    if qty <= 0:
+        return 0
     if str(settings.get("packing_fee_per") or "order") == "item":
-        return fee * max(0, int(item_qty))
+        return fee * qty
     return fee
 
 
@@ -1324,6 +1455,121 @@ def sale_detail(c, sale_id):
     d = row_dict(s)
     d["items"] = rows(c, "SELECT * FROM sale_items WHERE sale_id=? ORDER BY id", (sale_id,))
     return d
+
+
+# --------------------------------------------------------------- tagihan terbuka
+def next_doc_id(c, table, prefix, today):
+    """Nomor dokumen berurutan per hari; tabel dan prefiks berasal dari kode, bukan masukan pengguna."""
+    seq = c.execute(f"SELECT COUNT(*) FROM {table} WHERE business_date=?", (today,)).fetchone()[0] + 1
+    while True:
+        doc = f"{prefix}{today[2:4]}{today[5:7]}{today[8:10]}-{seq:03d}"
+        if not c.execute(f"SELECT 1 FROM {table} WHERE id=?", (doc,)).fetchone():
+            return doc
+        seq += 1
+
+
+def deduct_stock(c, need, products, note, stamp):
+    """Kurangi stok sekali saat barang keluar: penjualan langsung atau tagihan dibuat/digabung."""
+    for pid, qty in need.items():
+        p = products[pid]
+        if p["stock_tracked"]:
+            left = p["stock_on_hand"] - qty
+            c.execute("UPDATE products SET stock_on_hand=?,updated_at=? WHERE id=?", (left, stamp, pid))
+            c.execute("""INSERT INTO stock_movements(product_id,movement_type,quantity_change,resulting_quantity,note,created_at)
+                         VALUES(?,?,?,?,?,?)""", (pid, "sale", -qty, left, note, stamp))
+
+
+def restore_stock(c, note, stamp):
+    """Kembalikan stok bersih untuk dokumen yang dibatalkan, termasuk penyesuaian item sebelumnya."""
+    movements = rows(c, """SELECT product_id, SUM(quantity_change) AS net FROM stock_movements
+                          WHERE note=? AND movement_type IN ('sale','void') GROUP BY product_id
+                          HAVING SUM(quantity_change) < 0""", (note,))
+    for mv in movements:
+        p = c.execute("SELECT stock_on_hand FROM products WHERE id=?", (mv["product_id"],)).fetchone()
+        if not p:
+            continue
+        back = -mv["net"]
+        left = (p["stock_on_hand"] or 0) + back
+        c.execute("UPDATE products SET stock_on_hand=?,updated_at=? WHERE id=?", (left, stamp, mv["product_id"]))
+        c.execute("""INSERT INTO stock_movements(product_id,movement_type,quantity_change,resulting_quantity,note,created_at)
+                     VALUES(?,?,?,?,?,?)""", (mv["product_id"], "void", back, left, note, stamp))
+
+
+def insert_sale(c, user, shift, prepared, *, method, order_type, table_no, customer_name, note,
+                subtotal, discount, reason, packing, service, tax, rounding, total, paid, stamp,
+                order_ids="", request_id=None, deduct=True, need=None, products=None):
+    """Tulis satu nota lunas. Dipakai penjualan langsung maupun pelunasan tagihan."""
+    today = business_date(stamp)
+    sale_id = next_doc_id(c, "sales", "KS", today)
+    c.execute("""INSERT INTO sales(id,created_at,total_amount,payment_method,status,note,business_date,request_id,
+                   subtotal,discount_amount,discount_reason,packing_fee,service_amount,tax_amount,rounding_amount,
+                   amount_paid,change_amount,order_type,table_no,user_id,shift_id,order_ids,customer_name)
+                 VALUES(?,?,?,?,'paid',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+              (sale_id, stamp, total, method, note, today, request_id or None, subtotal, discount, reason,
+               packing, service, tax, rounding, paid, paid - total, order_type, table_no, user["id"], shift["id"],
+               order_ids, customer_name))
+    for p, qty, unit, summary, var_lines in prepared:
+        cur = c.execute("""INSERT INTO sale_items(sale_id,product_id,name_snapshot,variant_snapshot,unit_price,
+                             quantity,line_total,modifiers_summary,cost_snapshot) VALUES(?,?,?,?,?,?,?,?,?)""",
+                        (sale_id, p["id"], p["name"], p["variant"], unit, qty, unit * qty, summary, p["cost"]))
+        for vl in var_lines:
+            c.execute("""INSERT INTO sale_item_modifiers(sale_item_id,group_name,modifier_name,price_delta)
+                         VALUES(?,?,?,?)""", (cur.lastrowid, vl["group_name"], vl["modifier_name"], vl["price_delta"]))
+    if deduct and need:
+        deduct_stock(c, need, products or {}, sale_id, stamp)
+    return sale_id
+
+
+def bill_detail(c, bill_id):
+    b = c.execute("""SELECT b.*, u.name AS cashier FROM open_bills b LEFT JOIN users u ON u.id=b.user_id
+                     WHERE b.id=?""", (bill_id,)).fetchone()
+    if not b:
+        return None
+    d = row_dict(b)
+    d["items"] = rows(c, "SELECT * FROM open_bill_items WHERE bill_id=? ORDER BY id", (bill_id,))
+    d["kind_name"] = BILL_KINDS.get(d["kind"], d["kind"])
+    d["status_name"] = BILL_STATUS_NAME.get(d["status"], d["status"])
+    return d
+
+
+def insert_bill_items(c, bill_id, prepared, stamp):
+    for p, qty, unit, summary, var_lines in prepared:
+        c.execute("""INSERT INTO open_bill_items(bill_id,product_id,name_snapshot,variant_snapshot,unit_price,quantity,
+                       line_total,modifiers_summary,modifiers_json,cost_snapshot,created_at)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                  (bill_id, p["id"], p["name"], p["variant"], unit, qty, unit * qty, summary,
+                   json.dumps(var_lines, ensure_ascii=False), p["cost"], stamp))
+
+
+def recompute_bill(c, bill_id, stamp):
+    row = c.execute("""SELECT COALESCE(SUM(line_total),0) sub, COALESCE(SUM(quantity),0) qty
+                       FROM open_bill_items WHERE bill_id=?""", (bill_id,)).fetchone()
+    cats = c.execute("""SELECT COALESCE(p.category,'') cat, SUM(i.quantity) qty FROM open_bill_items i
+                        LEFT JOIN products p ON p.id=i.product_id WHERE i.bill_id=? GROUP BY cat""", (bill_id,)).fetchall()
+    b = c.execute("SELECT order_type FROM open_bills WHERE id=?", (bill_id,)).fetchone()
+    if not b:
+        return
+    settings = get_settings(c)
+    packing = packing_amount(settings, b["order_type"], [(r["cat"], r["qty"]) for r in cats])
+    service, tax, rounding, total = compute_totals(row["sub"], 0, settings, packing)
+    c.execute("""UPDATE open_bills SET subtotal=?,packing_fee=?,service_amount=?,tax_amount=?,rounding_amount=?,
+                 total_amount=?,item_count=?,updated_at=? WHERE id=?""",
+              (row["sub"], packing, service, tax, rounding, total, row["qty"], stamp, bill_id))
+
+
+def create_bill(c, user, shift, kind, prepared, need, products, order_type, table_no, customer_name, note,
+                request_id, stamp):
+    today = business_date(stamp)
+    bill_id = next_doc_id(c, "open_bills", "TG", today)
+    c.execute("""INSERT INTO open_bills(id,kind,status,created_at,updated_at,business_date,order_type,table_no,
+                   customer_name,note,subtotal,packing_fee,total_amount,item_count,user_id,shift_id,request_id)
+                 VALUES(?,?,'open',?,?,?,?,?,?,?,0,0,0,0,?,?,?)""",
+              (bill_id, kind, stamp, stamp, today, order_type, table_no, customer_name, note,
+               user["id"], shift["id"], request_id or None))
+    insert_bill_items(c, bill_id, prepared, stamp)
+    recompute_bill(c, bill_id, stamp)
+    deduct_stock(c, need, products, bill_id, stamp)
+    return bill_id
 
 
 def normalize_lines(items):
@@ -1411,8 +1657,13 @@ def lines_from_orders(c, order_ids):
 @route("POST", r"/api/sales")
 def r_sale_add(req):
     d, user = req.data, req.user
+    order_method = str(d.get("order_method") or "langsung").strip()
+    if order_method not in ORDER_METHODS:
+        raise ApiError(400, "Metode pemesanan tidak dikenal.")
+    if order_method == "gabung":
+        raise ApiError(400, "Gabungkan pesanan lewat tagihan yang sudah ada (POST /api/bills/<id>/items).")
     method = str(d.get("payment_method", "")).strip()
-    if method not in PAYMENT_METHODS:
+    if order_method == "langsung" and method not in PAYMENT_METHODS:
         raise ApiError(400, "Pilih cara bayar.")
     order_type = d.get("order_type", "dine_in")
     if order_type not in ORDER_TYPES:
@@ -1424,6 +1675,8 @@ def r_sale_add(req):
     if request_id and not re.fullmatch(r"[A-Za-z0-9._:-]{6,64}", request_id):
         raise ApiError(400, "Kunci permintaan transaksi tidak valid.")
     order_ids = d.get("order_ids")
+    if order_method != "langsung" and order_ids:
+        raise ApiError(400, "Pesanan meja dibayar lewat nota biasa, bukan tagihan terbuka.")
     customer_name = str(d.get("customer_name", "")).strip()[:40]
     lines = None if order_ids else normalize_lines(d.get("items"))
 
@@ -1432,6 +1685,10 @@ def r_sale_add(req):
             dup = c.execute("SELECT id FROM sales WHERE request_id=?", (request_id,)).fetchone()
             if dup:
                 return {"item": sale_detail(c, dup["id"]), "duplicate": True}
+            if order_method != "langsung":
+                dupb = c.execute("SELECT id FROM open_bills WHERE request_id=?", (request_id,)).fetchone()
+                if dupb:
+                    return Resp(200, {"bill": bill_detail(c, dupb["id"]), "duplicate": True})
         shift = open_shift_of(c, user["id"])
         if not shift:
             raise ApiError(409, "Kasir belum dibuka. Buka kasir dulu dan isi uang awal laci.")
@@ -1445,7 +1702,14 @@ def r_sale_add(req):
         else:
             prepared, need, products = price_lines(c, lines)
         subtotal = sum(unit * qty for _, qty, unit, _, _ in prepared)
-        packing = packing_amount(settings, order_type, sum(qty for _, qty, _, _, _ in prepared))
+        packing = packing_amount(settings, order_type, [(p["category"], qty) for p, qty, _, _, _ in prepared])
+        if order_method != "langsung":
+            # Tagihan terbuka: belum ada uang masuk, jadi belum menjadi omzet.
+            stamp = now()
+            bill_id = create_bill(c, user, shift, order_method, prepared, need, products, order_type, table_no,
+                                  customer_name, note, request_id, stamp)
+            audit(c, user, "buat_tagihan", f"{bill_id} · {BILL_KINDS[order_method]} · Rp{subtotal + packing}")
+            return Resp(201, {"bill": bill_detail(c, bill_id)})
         discount, reason = compute_discount(d.get("discount"), subtotal, user, settings)
         service, tax, rounding, total = compute_totals(subtotal, discount, settings, packing)
         if method == "tunai":
@@ -1454,33 +1718,13 @@ def r_sale_add(req):
                 raise ApiError(400, "Uang yang diterima kurang dari total.")
         else:
             paid = total
-        stamp, today = now(), business_date()
-        seq = c.execute("SELECT COUNT(*) FROM sales WHERE business_date=?", (today,)).fetchone()[0] + 1
-        sale_id = f"KS{today[2:4]}{today[5:7]}{today[8:10]}-{seq:03d}"
-        while c.execute("SELECT 1 FROM sales WHERE id=?", (sale_id,)).fetchone():
-            seq += 1
-            sale_id = f"KS{today[2:4]}{today[5:7]}{today[8:10]}-{seq:03d}"
-        c.execute("""INSERT INTO sales(id,created_at,total_amount,payment_method,status,note,business_date,request_id,
-                       subtotal,discount_amount,discount_reason,packing_fee,service_amount,tax_amount,rounding_amount,
-                       amount_paid,change_amount,order_type,table_no,user_id,shift_id,order_ids,customer_name)
-                     VALUES(?,?,?,?,'paid',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                  (sale_id, stamp, total, method, note, today, request_id or None, subtotal, discount, reason,
-                   packing, service, tax, rounding, paid, paid - total, order_type, table_no, user["id"], shift["id"],
-                   ",".join(o["id"] for o in orders), customer_name))
-        for p, qty, unit, summary, var_lines in prepared:
-            cur = c.execute("""INSERT INTO sale_items(sale_id,product_id,name_snapshot,variant_snapshot,unit_price,
-                                 quantity,line_total,modifiers_summary,cost_snapshot) VALUES(?,?,?,?,?,?,?,?,?)""",
-                            (sale_id, p["id"], p["name"], p["variant"], unit, qty, unit * qty, summary, p["cost"]))
-            for vl in var_lines:
-                c.execute("INSERT INTO sale_item_modifiers(sale_item_id,group_name,modifier_name,price_delta) VALUES(?,?,?,?)",
-                          (cur.lastrowid, vl["group_name"], vl["modifier_name"], vl["price_delta"]))
-        for pid, qty in need.items():
-            p = products[pid]
-            if p["stock_tracked"]:
-                left = p["stock_on_hand"] - qty
-                c.execute("UPDATE products SET stock_on_hand=?,updated_at=? WHERE id=?", (left, stamp, pid))
-                c.execute("INSERT INTO stock_movements(product_id,movement_type,quantity_change,resulting_quantity,note,created_at) VALUES(?,?,?,?,?,?)",
-                          (pid, "sale", -qty, left, sale_id, stamp))
+        stamp = now()
+        sale_id = insert_sale(c, user, shift, prepared, method=method, order_type=order_type, table_no=table_no,
+                              customer_name=customer_name, note=note, subtotal=subtotal, discount=discount,
+                              reason=reason, packing=packing, service=service, tax=tax, rounding=rounding,
+                              total=total, paid=paid, stamp=stamp,
+                              order_ids=",".join(o["id"] for o in orders), request_id=request_id,
+                              deduct=True, need=need, products=products)
         for o in orders:
             c.execute("UPDATE orders SET status='paid',sale_id=?,updated_at=?,handled_by=? WHERE id=?",
                       (sale_id, stamp, user["name"], o["id"]))
@@ -1552,6 +1796,609 @@ def r_sale_void(req):
         return {"item": sale_detail(c, sale_id)}
 
 
+@route("DELETE", r"/api/sales/([A-Za-z0-9-]+)", "owner")
+def r_sale_delete(req):
+    """Hapus transaksi permanen (khusus pemilik). Berbeda dari batal: barisnya hilang dari daftar."""
+    sale_id = req.match.group(1)
+    reason = str(req.data.get("reason", "")).strip()[:160]
+    if not reason:
+        raise ApiError(400, "Isi alasan penghapusan.")
+    with db(write=True) as c:
+        s = c.execute("SELECT * FROM sales WHERE id=?", (sale_id,)).fetchone()
+        if not s:
+            raise ApiError(404, "Transaksi tidak ditemukan.")
+        stamp = now()
+        if s["status"] != "void":
+            restore_stock(c, sale_id, stamp)
+        for oid in [x for x in (s["order_ids"] or "").split(",") if x]:
+            c.execute("UPDATE orders SET status='served',sale_id=NULL,updated_at=? WHERE id=? AND status='paid'",
+                      (stamp, oid))
+        c.execute("UPDATE open_bills SET status='open',sale_id=NULL,updated_at=? WHERE sale_id=?", (stamp, sale_id))
+        c.execute("DELETE FROM sale_item_modifiers WHERE sale_item_id IN (SELECT id FROM sale_items WHERE sale_id=?)",
+                  (sale_id,))
+        c.execute("DELETE FROM sale_items WHERE sale_id=?", (sale_id,))
+        c.execute("DELETE FROM sales WHERE id=?", (sale_id,))
+        audit(c, req.user, "hapus_transaksi", f"{sale_id} Rp{s['total_amount']} — {reason}")
+        return {"ok": True, "deleted": sale_id, "total": s["total_amount"]}
+
+
+# --------------------------------------------------------------------------- rute: reservasi meja
+def reservation_slots(settings):
+    """Daftar jam yang bisa dipilih, dari jam mulai sampai jam akhir per interval."""
+    try:
+        start = datetime.strptime(settings.get("reservasi_jam_mulai", "11:00"), "%H:%M")
+        end = datetime.strptime(settings.get("reservasi_jam_akhir", "20:00"), "%H:%M")
+        step = max(10, min(120, int(settings.get("reservasi_interval", "30"))))
+    except (ValueError, TypeError):
+        start, end, step = datetime.strptime("11:00", "%H:%M"), datetime.strptime("20:00", "%H:%M"), 30
+    out, cur = [], start
+    while cur <= end:
+        out.append(cur.strftime("%H:%M"))
+        cur += timedelta(minutes=step)
+    return out
+
+
+def first_slot_from_now(settings, lead_minutes=60):
+    """Slot pertama yang masih boleh untuk hari ini: minimal 1 jam dari sekarang."""
+    target = datetime.now(TZ) + timedelta(minutes=lead_minutes)
+    for s in reservation_slots(settings):
+        h, m = (int(x) for x in s.split(":"))
+        if (h, m) >= (target.hour, target.minute):
+            return s
+    return ""
+
+
+def reservation_detail(c, rid):
+    r = c.execute("SELECT * FROM reservations WHERE id=?", (rid,)).fetchone()
+    if not r:
+        return None
+    d = row_dict(r)
+    d["items"] = rows(c, "SELECT * FROM reservation_items WHERE reservation_id=? ORDER BY id", (rid,))
+    d["status_name"] = RESERVASI_STATUS.get(d["status"], d["status"])
+    return d
+
+
+def reservation_item_count(c, rid):
+    return c.execute("SELECT COALESCE(SUM(quantity),0) FROM reservation_items WHERE reservation_id=?", (rid,)).fetchone()[0]
+
+
+@route("GET", r"/api/public/reservasi/info", "public")
+def r_reservasi_info(req):
+    """Info untuk halaman reservasi publik: jam tersedia, aturan, dan menu (tanpa meja)."""
+    with db() as c:
+        st = get_settings(c)
+        groups, by_cat, by_prod = group_map(c)
+        items = []
+        for p in rows(c, """SELECT id,name,category,variant,price,description,featured,image_key,available,
+                            stock_tracked,stock_on_hand,custom_modifiers FROM products
+                            WHERE active=1 AND price IS NOT NULL"""):
+            ids = by_prod.get(p["id"], []) if p["custom_modifiers"] else by_cat.get(p["category"], [])
+            gs = [groups[g] for g in ids if g in groups and groups[g]["options"]]
+            sold_out = (not p["available"]) or (p["stock_tracked"] and p["stock_on_hand"] is not None and p["stock_on_hand"] <= 0)
+            items.append({"id": p["id"], "name": p["name"], "category": p["category"], "variant": p["variant"],
+                          "price": p["price"], "description": p["description"], "featured": p["featured"],
+                          "image_key": clean_image(p["image_key"]), "sold_out": bool(sold_out),
+                          "groups": [{"id": g["id"], "name": g["name"], "min_select": g["min_select"], "max_select": g["max_select"],
+                                      "options": [{"id": o["id"], "name": o["name"], "price_delta": o["price_delta"]} for o in g["options"]]}
+                                     for g in gs]})
+    rank = {k: i for i, k in enumerate(CATEGORY_ORDER)}
+    items.sort(key=lambda x: (rank.get(x["category"], 99), x["category"], -x["featured"], x["name"].lower(), x["variant"]))
+    today = datetime.now(TZ).date()
+    hmin = max(0, int(st["reservasi_hari_min"] or 0))
+    tgl_min = today + timedelta(days=hmin)
+    first_today = first_slot_from_now(st)
+    if tgl_min == today and not first_today:
+        tgl_min = today + timedelta(days=1)
+    return {"aktif": st["reservasi_aktif"] == "1", "items": items,
+            "jam": reservation_slots(st),
+            "jam_min_hari_ini": first_today,
+            "tanggal_min": tgl_min.isoformat(),
+            "tanggal_max": (today + timedelta(days=30)).isoformat(),
+            "max_orang": int(st["reservasi_max_orang"] or 0),
+            "dp": int(st["reservasi_dp"] or 0),
+            "info_bayar": st["reservasi_info_bayar"],
+            "wa": st["reservasi_wa"],
+            "settings": {k: st[k] for k in ("outlet_name", "outlet_address", "outlet_contact")}}
+
+
+@route("POST", r"/api/public/reservasi", "public")
+def r_reservasi_add(req):
+    d = req.data
+    with db(write=True) as c:
+        st = get_settings(c)
+        if st["reservasi_aktif"] != "1":
+            raise ApiError(409, "Reservasi sedang ditutup. Silakan hubungi kami lewat WhatsApp.")
+        name = str(d.get("name", "")).strip()[:60]
+        phone = re.sub(r"[^0-9+]", "", str(d.get("phone", "")))[:20]
+        if len(name) < 2:
+            raise ApiError(400, "Isi nama pemesan.")
+        if len(phone) < 8:
+            raise ApiError(400, "Nomor HP/WhatsApp belum lengkap.")
+        max_orang = int(st["reservasi_max_orang"] or 0)
+        party = to_int(d.get("party_size"), "Jumlah orang", 1, max_orang if max_orang > 0 else 1000)
+        tanggal = str(d.get("tanggal", "")).strip()
+        try:
+            day = datetime.strptime(tanggal, "%Y-%m-%d").date()
+        except ValueError:
+            raise ApiError(400, "Tanggal reservasi tidak valid.")
+        today = datetime.now(TZ).date()
+        hmin = max(0, int(st["reservasi_hari_min"] or 0))
+        if day < today + timedelta(days=hmin):
+            raise ApiError(400, "Tanggal reservasi sudah lewat." if hmin <= 0 else f"Reservasi paling cepat H-{hmin} dari hari ini.")
+        if day > today + timedelta(days=30):
+            raise ApiError(400, "Tanggal reservasi terlalu jauh (maksimal 30 hari).")
+        if day == today + timedelta(days=hmin) and hmin >= 1 and datetime.now(TZ).strftime("%H:%M") > st["reservasi_batas_jam"]:
+            raise ApiError(400, f"Pemesanan untuk {tanggal} sudah ditutup (batas {st['reservasi_batas_jam']}).")
+        jam = str(d.get("jam", "")).strip()
+        if jam not in reservation_slots(st):
+            raise ApiError(400, "Jam yang dipilih tidak tersedia.")
+        if day == today:
+            first = first_slot_from_now(st)
+            if not first:
+                raise ApiError(400, "Hari ini sudah tidak ada jam reservasi. Pilih tanggal lain.")
+            if jam < first:
+                raise ApiError(400, f"Untuk hari ini, pilih jam {first} atau setelahnya.")
+        note = str(d.get("note", "")).strip()[:200]
+        raw = d.get("request_id")
+        request_id = str(raw).strip() if raw else ""
+        if request_id and not re.fullmatch(r"[A-Za-z0-9._:-]{6,64}", request_id):
+            raise ApiError(400, "Kunci permintaan tidak valid.")
+        if request_id:
+            dup = c.execute("SELECT id FROM reservations WHERE request_id=?", (request_id,)).fetchone()
+            if dup:
+                return {"item": reservation_detail(c, dup["id"]), "duplicate": True}
+        rate_limit(f"resv:ip:{req.ip}", 6, 600, "Terlalu banyak reservasi dari perangkat ini. Coba lagi beberapa menit lagi.")
+        items = d.get("items") or []
+        prepared, subtotal = [], 0
+        if items:
+            lines = normalize_lines(items)
+            if len(lines) > 40 or sum(lines.values()) > 100:
+                raise ApiError(400, "Pesanan terlalu besar untuk reservasi. Hubungi kami lewat WhatsApp.")
+            prepared, need, products = price_lines(c, lines)
+            subtotal = sum(unit * qty for _, qty, unit, _, _ in prepared)
+            if subtotal > 5_000_000:
+                raise ApiError(400, "Total pesanan terlalu besar. Hubungi kami lewat WhatsApp.")
+        stamp, today_s = now(), business_date()
+        seq = c.execute("SELECT COUNT(*) FROM reservations WHERE substr(id,5,6)=?", (today_s[2:4] + today_s[5:7] + today_s[8:10],)).fetchone()[0] + 1
+        rid = f"RSV-{today_s[2:4]}{today_s[5:7]}{today_s[8:10]}-{seq:03d}"
+        while c.execute("SELECT 1 FROM reservations WHERE id=?", (rid,)).fetchone():
+            seq += 1
+            rid = f"RSV-{today_s[2:4]}{today_s[5:7]}{today_s[8:10]}-{seq:03d}"
+        token = secrets.token_urlsafe(9)
+        c.execute("""INSERT INTO reservations(id,token,created_at,updated_at,status,name,phone,party_size,tanggal,jam,
+                       note,subtotal,total_estimate,request_id)
+                     VALUES(?,?,?,?,'baru',?,?,?,?,?,?,?,?,?)""",
+                  (rid, token, stamp, stamp, name, phone, party, tanggal, jam, note, subtotal, subtotal, request_id or None))
+        for p, qty, unit, summary, var_lines in prepared:
+            c.execute("""INSERT INTO reservation_items(reservation_id,product_id,name_snapshot,variant_snapshot,unit_price,
+                           quantity,line_total,modifiers_summary,modifiers_json) VALUES(?,?,?,?,?,?,?,?,?)""",
+                      (rid, p["id"], p["name"], p["variant"], unit, qty, unit * qty, summary,
+                       json.dumps(var_lines, ensure_ascii=False)))
+        audit(c, {"name": "Pelanggan"}, "buat_reservasi", f"{rid} {name} {tanggal} {jam} · {party} orang")
+        return Resp(201, {"item": reservation_detail(c, rid)})
+
+
+@route("GET", r"/api/public/reservasi/([A-Za-z0-9_-]+)", "public")
+def r_reservasi_public_get(req):
+    with db() as c:
+        r = c.execute("SELECT * FROM reservations WHERE token=?", (req.match.group(1),)).fetchone()
+        if not r:
+            raise ApiError(404, "Reservasi tidak ditemukan. Periksa tautannya.")
+        return {"item": reservation_detail(c, r["id"])}
+
+
+@route("POST", r"/api/public/reservasi/([A-Za-z0-9_-]+)/jawab", "public")
+def r_reservasi_jawab(req):
+    token = req.match.group(1)
+    terima = bool(req.data.get("terima"))
+    with db(write=True) as c:
+        r = c.execute("SELECT * FROM reservations WHERE token=?", (token,)).fetchone()
+        if not r:
+            raise ApiError(404, "Reservasi tidak ditemukan.")
+        if r["status"] != "ubah":
+            raise ApiError(409, "Tidak ada perubahan yang menunggu jawaban.")
+        stamp = now()
+        if terima:
+            c.execute("""UPDATE reservations SET status='disetujui',jam=proposed_jam,table_label=proposed_table_label,
+                         proposed_jam='',proposed_table_label='',updated_at=? WHERE id=?""", (stamp, r["id"]))
+            audit(c, {"name": "Pelanggan"}, "terima_ubah_reservasi", r["id"])
+        else:
+            c.execute("""UPDATE reservations SET status='batal',kasir_note='Pelanggan tidak setuju perubahan jadwal',
+                         updated_at=? WHERE id=?""", (stamp, r["id"]))
+            audit(c, {"name": "Pelanggan"}, "tolak_ubah_reservasi", r["id"])
+        return {"item": reservation_detail(c, r["id"])}
+
+
+@route("GET", r"/api/reservasi")
+def r_reservasi_list(req):
+    tanggal = req.arg("tanggal") or datetime.now(TZ).date().isoformat()
+    status = req.arg("status")
+    sql = "SELECT * FROM reservations WHERE tanggal=?"
+    args = [tanggal]
+    if status and status in RESERVASI_STATUS:
+        sql += " AND status=?"
+        args.append(status)
+    sql += " ORDER BY jam, created_at"
+    with db() as c:
+        items = rows(c, sql, args)
+        for r in items:
+            r["items"] = rows(c, "SELECT * FROM reservation_items WHERE reservation_id=? ORDER BY id", (r["id"],))
+            r["status_name"] = RESERVASI_STATUS.get(r["status"], r["status"])
+        pending = rows(c, "SELECT * FROM reservations WHERE status='baru' ORDER BY tanggal, jam")
+        for r in pending:
+            r["items"] = rows(c, "SELECT * FROM reservation_items WHERE reservation_id=? ORDER BY id", (r["id"],))
+            r["status_name"] = RESERVASI_STATUS.get(r["status"], r["status"])
+    return {"items": items, "pending": pending, "tanggal": tanggal, "baru": len(pending)}
+
+
+@route("POST", r"/api/reservasi/([A-Za-z0-9-]+)/setujui")
+def r_reservasi_setujui(req):
+    d = req.data
+    with db(write=True) as c:
+        r = c.execute("SELECT * FROM reservations WHERE id=?", (req.match.group(1),)).fetchone()
+        if not r:
+            raise ApiError(404, "Reservasi tidak ditemukan.")
+        if r["status"] not in ("baru", "ubah"):
+            raise ApiError(409, "Reservasi ini sudah dijawab.")
+        st = get_settings(c)
+        jam = str(d.get("jam") or r["jam"]).strip()
+        if jam not in reservation_slots(st):
+            raise ApiError(400, "Jam itu tidak tersedia.")
+        table_label = str(d.get("table_label") or r["table_label"] or "").strip()[:30]
+        note = str(d.get("note") or "").strip()[:200]
+        reason = str(d.get("reason") or "").strip()[:160]
+        stamp = now()
+        if jam != r["jam"]:
+            if not reason:
+                raise ApiError(400, "Isi alasan perubahan jam (mis. jam itu sudah penuh).")
+            c.execute("""UPDATE reservations SET status='ubah',proposed_jam=?,proposed_table_label=?,change_reason=?,
+                         kasir_note=?,updated_at=? WHERE id=?""", (jam, table_label, reason, note, stamp, r["id"]))
+            audit(c, req.user, "usul_ubah_reservasi", f"{r['id']} {r['jam']}→{jam} — {reason}")
+        else:
+            c.execute("""UPDATE reservations SET status='disetujui',jam=?,table_label=?,kasir_note=?,updated_at=? WHERE id=?""",
+                      (jam, table_label, note, stamp, r["id"]))
+            audit(c, req.user, "setujui_reservasi", f"{r['id']} {r['name']} {r['tanggal']} {jam}")
+        return {"item": reservation_detail(c, r["id"])}
+
+
+@route("POST", r"/api/reservasi/([A-Za-z0-9-]+)/tolak")
+def r_reservasi_tolak(req):
+    reason = str(req.data.get("reason", "")).strip()[:160]
+    if not reason:
+        raise ApiError(400, "Isi alasan penolakan.")
+    with db(write=True) as c:
+        r = c.execute("SELECT * FROM reservations WHERE id=?", (req.match.group(1),)).fetchone()
+        if not r:
+            raise ApiError(404, "Reservasi tidak ditemukan.")
+        if r["status"] not in ("baru", "ubah"):
+            raise ApiError(409, "Reservasi ini sudah dijawab.")
+        c.execute("UPDATE reservations SET status='ditolak',reject_reason=?,updated_at=? WHERE id=?",
+                  (reason, now(), r["id"]))
+        audit(c, req.user, "tolak_reservasi", f"{r['id']} — {reason}")
+        return {"item": reservation_detail(c, r["id"])}
+
+
+@route("POST", r"/api/reservasi/([A-Za-z0-9-]+)/datang")
+def r_reservasi_datang(req):
+    with db(write=True) as c:
+        r = c.execute("SELECT * FROM reservations WHERE id=?", (req.match.group(1),)).fetchone()
+        if not r:
+            raise ApiError(404, "Reservasi tidak ditemukan.")
+        if r["status"] not in ("disetujui", "ubah"):
+            raise ApiError(409, "Reservasi ini belum disetujui.")
+        stamp = now()
+        c.execute("UPDATE reservations SET status='datang',arrived_at=?,updated_at=? WHERE id=?", (stamp, stamp, r["id"]))
+        audit(c, req.user, "tamu_datang", r["id"])
+        return {"item": reservation_detail(c, r["id"])}
+
+
+@route("POST", r"/api/reservasi/([A-Za-z0-9-]+)/selesai")
+def r_reservasi_selesai(req):
+    with db(write=True) as c:
+        r = c.execute("SELECT * FROM reservations WHERE id=?", (req.match.group(1),)).fetchone()
+        if not r:
+            raise ApiError(404, "Reservasi tidak ditemukan.")
+        stamp = now()
+        c.execute("UPDATE reservations SET status='selesai',closed_at=?,updated_at=? WHERE id=?", (stamp, stamp, r["id"]))
+        audit(c, req.user, "selesai_reservasi", r["id"])
+        return {"item": reservation_detail(c, r["id"])}
+
+
+@route("POST", r"/api/reservasi/([A-Za-z0-9-]+)/batal")
+def r_reservasi_batal(req):
+    reason = str(req.data.get("reason", "")).strip()[:160] or "Dibatalkan kasir"
+    with db(write=True) as c:
+        r = c.execute("SELECT * FROM reservations WHERE id=?", (req.match.group(1),)).fetchone()
+        if not r:
+            raise ApiError(404, "Reservasi tidak ditemukan.")
+        c.execute("UPDATE reservations SET status='batal',kasir_note=?,updated_at=? WHERE id=?", (reason, now(), r["id"]))
+        audit(c, req.user, "batal_reservasi", f"{r['id']} — {reason}")
+        return {"item": reservation_detail(c, r["id"])}
+
+
+@route("POST", r"/api/reservasi/([A-Za-z0-9-]+)/dp")
+def r_reservasi_dp(req):
+    amount = to_int(req.data.get("amount"), "Jumlah DP", 0, 100_000_000)
+    method = str(req.data.get("method", "")).strip()[:20]
+    note = str(req.data.get("note", "")).strip()[:160]
+    with db(write=True) as c:
+        r = c.execute("SELECT * FROM reservations WHERE id=?", (req.match.group(1),)).fetchone()
+        if not r:
+            raise ApiError(404, "Reservasi tidak ditemukan.")
+        c.execute("UPDATE reservations SET dp_amount=?,dp_method=?,dp_note=?,updated_at=? WHERE id=?",
+                  (amount, method, note, now(), r["id"]))
+        audit(c, req.user, "dp_reservasi", f"{r['id']} Rp{amount} {method}")
+        return {"item": reservation_detail(c, r["id"])}
+
+
+@route("POST", r"/api/reservasi/([A-Za-z0-9-]+)/cetak")
+def r_reservasi_cetak(req):
+    with db(write=True) as c:
+        r = c.execute("SELECT * FROM reservations WHERE id=?", (req.match.group(1),)).fetchone()
+        if not r:
+            raise ApiError(404, "Reservasi tidak ditemukan.")
+        c.execute("UPDATE reservations SET printed_at=?,updated_at=? WHERE id=?", (now(), now(), r["id"]))
+        return {"ok": True, "printed_at": now()}
+
+
+# --------------------------------------------------------------------------- rute: tagihan terbuka
+@route("GET", r"/api/bills")
+def r_bills(req):
+    status = req.arg("status", "open")
+    if status not in ("open", "paid", "void", "all"):
+        raise ApiError(400, "Status tagihan tidak dikenal.")
+    kind = req.arg("kind")
+    if kind and kind not in BILL_KINDS:
+        raise ApiError(400, "Jenis tagihan tidak dikenal.")
+    sql = """SELECT b.*, u.name AS cashier FROM open_bills b LEFT JOIN users u ON u.id=b.user_id WHERE 1=1"""
+    args = []
+    if status != "all":
+        sql += " AND b.status=?"; args.append(status)
+    if kind:
+        sql += " AND b.kind=?"; args.append(kind)
+    sql += " ORDER BY b.created_at, b.id"
+    with db() as c:
+        items = rows(c, sql, args)
+        if items:
+            marks = ",".join("?" * len(items))
+            by_bill = {}
+            for it in rows(c, f"SELECT * FROM open_bill_items WHERE bill_id IN ({marks}) ORDER BY id", [b["id"] for b in items]):
+                by_bill.setdefault(it["bill_id"], []).append(it)
+            for b in items:
+                b["items"] = by_bill.get(b["id"], [])
+                b["kind_name"] = BILL_KINDS.get(b["kind"], b["kind"])
+                b["status_name"] = BILL_STATUS_NAME.get(b["status"], b["status"])
+    return {"items": items, "status": status}
+
+
+@route("GET", r"/api/bills/([A-Za-z0-9-]+)")
+def r_bill_get(req):
+    with db() as c:
+        b = bill_detail(c, req.match.group(1))
+    if not b:
+        raise ApiError(404, "Tagihan tidak ditemukan.")
+    return {"item": b}
+
+
+@route("POST", r"/api/bills/([A-Za-z0-9-]+)/items")
+def r_bill_add_items(req):
+    """Gabungkan pesanan baru ke tagihan yang belum dibayar — satu struk untuk semua pesanan."""
+    bill_id = req.match.group(1)
+    lines = normalize_lines(req.data.get("items"))
+    with db(write=True) as c:
+        b = c.execute("SELECT * FROM open_bills WHERE id=?", (bill_id,)).fetchone()
+        if not b:
+            raise ApiError(404, "Tagihan tidak ditemukan.")
+        if b["status"] == "paid":
+            raise ApiError(409, "Tagihan ini sudah lunas. Buat tagihan baru.")
+        if b["status"] == "void":
+            raise ApiError(409, "Tagihan ini sudah dibatalkan.")
+        prepared, need, products = price_lines(c, lines)
+        stamp = now()
+        c.execute("UPDATE open_bills SET revision=revision+1 WHERE id=?", (bill_id,))
+        insert_bill_items(c, bill_id, prepared, stamp)
+        deduct_stock(c, need, products, bill_id, stamp)
+        recompute_bill(c, bill_id, stamp)
+        added = sum(qty for _, qty, _, _, _ in prepared)
+        audit(c, req.user, "gabung_tagihan", f"{bill_id} +{added} item")
+        return {"bill": bill_detail(c, bill_id)}
+
+
+@route("PUT", r"/api/bills/([A-Za-z0-9-]+)/edit")
+def r_bill_edit(req):
+    """Ubah jumlah/catatan baris pada tagihan yang belum dibayar; harga tetap memakai snapshot awal."""
+    bill_id, d = req.match.group(1), req.data
+    entries = d.get("items")
+    if not isinstance(entries, list) or not entries or len(entries) > 100:
+        raise ApiError(400, "Daftar item tidak valid.")
+    expected_revision = d.get("revision")
+    if type(expected_revision) is not int or expected_revision < 0:
+        raise ApiError(400, "Versi tagihan tidak valid; muat ulang tagihan.")
+    raw_note = d.get("note")
+    if raw_note is not None and not isinstance(raw_note, str):
+        raise ApiError(400, "Catatan tagihan tidak valid.")
+    bill_note = (raw_note if raw_note is not None else "").strip()
+    if len(bill_note) > 240:
+        raise ApiError(400, "Catatan tagihan maksimal 240 karakter.")
+
+    with db(write=True) as c:
+        b = c.execute("SELECT * FROM open_bills WHERE id=?", (bill_id,)).fetchone()
+        if not b:
+            raise ApiError(404, "Tagihan tidak ditemukan.")
+        if b["status"] == "paid":
+            raise ApiError(409, "Tagihan ini sudah lunas; tidak bisa diedit.")
+        if b["status"] == "void":
+            raise ApiError(409, "Tagihan ini sudah dibatalkan.")
+        if b["revision"] != expected_revision:
+            raise ApiError(409, "Tagihan berubah sejak dibuka. Muat ulang sebelum menyimpan.")
+        if raw_note is None:
+            bill_note = b["note"] or ""
+        current = rows(c, "SELECT * FROM open_bill_items WHERE bill_id=? ORDER BY id", (bill_id,))
+        by_id = {r["id"]: r for r in current}
+        parsed, seen = {}, set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ApiError(400, "Format item tidak valid.")
+            line_id = to_int(entry.get("id"), "Item", 1)
+            if line_id in seen or line_id not in by_id:
+                raise ApiError(400, "Baris item tidak cocok dengan tagihan ini.")
+            seen.add(line_id)
+            quantity = to_int(entry.get("quantity"), "Jumlah", 0, 999)
+            raw_item_note = entry.get("note", by_id[line_id]["note"] or "")
+            if not isinstance(raw_item_note, str):
+                raise ApiError(400, "Catatan item tidak valid.")
+            item_note = raw_item_note.strip()
+            if len(item_note) > 160:
+                raise ApiError(400, "Catatan item maksimal 160 karakter.")
+            parsed[line_id] = (quantity, item_note)
+        if seen != set(by_id):
+            raise ApiError(400, "Kirim semua baris item; gunakan jumlah 0 untuk menghapus item.")
+        if not any(quantity > 0 for quantity, _ in parsed.values()):
+            raise ApiError(400, "Tagihan harus menyisakan minimal satu item.")
+
+        stock_delta = {}
+        for line_id, (quantity, _) in parsed.items():
+            old = by_id[line_id]
+            stock_delta[old["product_id"]] = stock_delta.get(old["product_id"], 0) + quantity - old["quantity"]
+        stamp = now()
+        for pid, delta in stock_delta.items():
+            if not delta:
+                continue
+            product = c.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
+            if not product:
+                raise ApiError(409, "Menu pada tagihan tidak ditemukan; perubahan stok tidak bisa dipastikan.")
+            if not product["stock_tracked"]:
+                continue
+            if product["stock_on_hand"] is None:
+                raise ApiError(409, f"Stok {product['name']} belum tercatat.")
+            if delta > 0:
+                if not product["available"]:
+                    raise ApiError(409, f"{product['name']} sedang tidak tersedia.")
+                if product["stock_on_hand"] < delta:
+                    raise ApiError(409, f"Stok {product['name']} tidak cukup (sisa {product['stock_on_hand']}).")
+            new_stock = product["stock_on_hand"] - delta
+            c.execute("UPDATE products SET stock_on_hand=?,updated_at=? WHERE id=?", (new_stock, stamp, pid))
+            movement_type = "sale" if delta > 0 else "void"
+            c.execute("""INSERT INTO stock_movements(product_id,movement_type,quantity_change,resulting_quantity,note,created_at)
+                         VALUES(?,?,?,?,?,?)""", (pid, movement_type, -delta, new_stock, bill_id, stamp))
+
+        changed = 0
+        for line_id, (quantity, item_note) in parsed.items():
+            old = by_id[line_id]
+            changed += int(quantity != old["quantity"] or item_note != (old["note"] or ""))
+            if quantity == 0:
+                c.execute("DELETE FROM open_bill_items WHERE id=? AND bill_id=?", (line_id, bill_id))
+            else:
+                c.execute("UPDATE open_bill_items SET quantity=?,line_total=?,note=? WHERE id=? AND bill_id=?",
+                          (quantity, quantity * old["unit_price"], item_note, line_id, bill_id))
+        c.execute("UPDATE open_bills SET note=?,updated_at=?,revision=revision+1 WHERE id=?", (bill_note, stamp, bill_id))
+        recompute_bill(c, bill_id, stamp)
+        audit(c, req.user, "edit_tagihan", f"{bill_id} · {changed} baris diubah")
+        return {"bill": bill_detail(c, bill_id)}
+
+
+@route("POST", r"/api/bills/([A-Za-z0-9-]+)/settle")
+def r_bill_settle(req):
+    """Lunasi tagihan: satu nota lunas berisi seluruh pesanan yang tergabung."""
+    bill_id, d, user = req.match.group(1), req.data, req.user
+    method = str(d.get("payment_method", "")).strip()
+    if method not in PAYMENT_METHODS:
+        raise ApiError(400, "Pilih cara bayar.")
+    raw_request = d.get("request_id")
+    request_id = str(raw_request).strip() if raw_request else ""
+    if request_id and not re.fullmatch(r"[A-Za-z0-9._:-]{6,64}", request_id):
+        raise ApiError(400, "Kunci permintaan transaksi tidak valid.")
+    with db(write=True) as c:
+        b = c.execute("SELECT * FROM open_bills WHERE id=?", (bill_id,)).fetchone()
+        if not b:
+            raise ApiError(404, "Tagihan tidak ditemukan.")
+        if b["status"] == "paid":
+            if b["sale_id"]:
+                return {"item": sale_detail(c, b["sale_id"]), "duplicate": True}
+            raise ApiError(409, "Tagihan ini sudah lunas.")
+        if b["status"] == "void":
+            raise ApiError(409, "Tagihan ini sudah dibatalkan.")
+        if request_id:
+            dup = c.execute("SELECT id FROM sales WHERE request_id=?", (request_id,)).fetchone()
+            if dup:
+                return {"item": sale_detail(c, dup["id"]), "duplicate": True}
+        shift = open_shift_of(c, user["id"])
+        if not shift:
+            raise ApiError(409, "Kasir belum dibuka. Buka kasir dulu dan isi uang awal laci.")
+        settings = get_settings(c)
+        items = c.execute("SELECT * FROM open_bill_items WHERE bill_id=? ORDER BY id", (bill_id,)).fetchall()
+        if not items:
+            raise ApiError(409, "Tagihan ini belum berisi pesanan.")
+        prepared, need, products = [], {}, {}
+        for it in items:
+            p = products.get(it["product_id"]) or c.execute("SELECT * FROM products WHERE id=?", (it["product_id"],)).fetchone()
+            if not p:
+                raise ApiError(409, f"Menu {it['name_snapshot']} sudah dihapus dari sistem.")
+            products[p["id"]] = p
+            need[p["id"]] = need.get(p["id"], 0) + it["quantity"]
+            prepared.append((p, it["quantity"], it["unit_price"], it["modifiers_summary"],
+                             json.loads(it["modifiers_json"] or "[]")))
+        subtotal = sum(unit * qty for _, qty, unit, _, _ in prepared)
+        packing = packing_amount(settings, b["order_type"], [(p["category"], qty) for p, qty, _, _, _ in prepared])
+        discount, reason = compute_discount(d.get("discount"), subtotal, user, settings)
+        service, tax, rounding, total = compute_totals(subtotal, discount, settings, packing)
+        if method == "tunai":
+            paid = to_int(d.get("amount_paid"), "Uang diterima", 0)
+            if paid < total:
+                raise ApiError(400, "Uang yang diterima kurang dari total.")
+        else:
+            paid = total
+        stamp = now()
+        sale_id = insert_sale(c, user, shift, prepared, method=method, order_type=b["order_type"],
+                              table_no=b["table_no"], customer_name=b["customer_name"], note=b["note"],
+                              subtotal=subtotal, discount=discount, reason=reason, packing=packing,
+                              service=service, tax=tax, rounding=rounding, total=total, paid=paid, stamp=stamp,
+                              request_id=request_id or None, deduct=False)
+        c.execute("UPDATE open_bills SET status='paid',sale_id=?,updated_at=? WHERE id=?", (sale_id, stamp, bill_id))
+        audit(c, user, "bayar_tagihan", f"{bill_id} → {sale_id} · {BILL_KINDS.get(b['kind'], b['kind'])} · Rp{total}")
+        return {"item": sale_detail(c, sale_id), "bill": bill_detail(c, bill_id)}
+
+
+@route("POST", r"/api/bills/([A-Za-z0-9-]+)/kind")
+def r_bill_kind(req):
+    """Pindahkan tagihan antara 'Buat Pesanan' dan 'Piutang' tanpa mengubah isinya."""
+    bill_id = req.match.group(1)
+    kind = str(req.data.get("kind", "")).strip()
+    if kind not in BILL_KINDS:
+        raise ApiError(400, "Jenis tagihan tidak dikenal.")
+    with db(write=True) as c:
+        b = c.execute("SELECT * FROM open_bills WHERE id=?", (bill_id,)).fetchone()
+        if not b:
+            raise ApiError(404, "Tagihan tidak ditemukan.")
+        if b["status"] != "open":
+            raise ApiError(409, "Tagihan yang sudah lunas/dibatalkan tidak bisa diubah.")
+        c.execute("UPDATE open_bills SET kind=?,updated_at=? WHERE id=?", (kind, now(), bill_id))
+        audit(c, req.user, "ubah_jenis_tagihan", f"{bill_id} {b['kind']} → {kind}")
+        return {"bill": bill_detail(c, bill_id)}
+
+
+@route("POST", r"/api/bills/([A-Za-z0-9-]+)/void", "owner")
+def r_bill_void(req):
+    bill_id = req.match.group(1)
+    reason = str(req.data.get("reason", "")).strip()[:160]
+    if not reason:
+        raise ApiError(400, "Isi alasan pembatalan.")
+    with db(write=True) as c:
+        b = c.execute("SELECT * FROM open_bills WHERE id=?", (bill_id,)).fetchone()
+        if not b:
+            raise ApiError(404, "Tagihan tidak ditemukan.")
+        if b["status"] == "void":
+            raise ApiError(409, "Tagihan ini sudah dibatalkan.")
+        if b["status"] == "paid":
+            raise ApiError(409, "Tagihan ini sudah lunas. Batalkan notanya lewat menu Pesanan.")
+        stamp = now()
+        restore_stock(c, bill_id, stamp)
+        c.execute("UPDATE open_bills SET status='void',void_reason=?,voided_by=?,voided_at=?,updated_at=? WHERE id=?",
+                  (reason, req.user["name"], stamp, stamp, bill_id))
+        audit(c, req.user, "batal_tagihan", f"{bill_id} Rp{b['total_amount']} — {reason}")
+        return {"bill": bill_detail(c, bill_id)}
+
+
 # --------------------------------------------------------------------------- rute: kas / shift
 def shift_report(c, shift):
     s = row_dict(shift)
@@ -1559,13 +2406,22 @@ def shift_report(c, shift):
                        SUM(tax_amount) tax, SUM(service_amount) service FROM sales
                        WHERE shift_id=? AND status!='void' GROUP BY payment_method""", (s["id"],))
     cash = sum(r["total"] for r in sales if r["payment_method"] == "tunai")
+    noncash = sum(r["total"] for r in sales if r["payment_method"] != "tunai")
     voids = c.execute("SELECT COUNT(*), COALESCE(SUM(total_amount),0) FROM sales WHERE shift_id=? AND status='void'", (s["id"],)).fetchone()
     s["by_method"] = sales
     s["sales_count"] = sum(r["n"] for r in sales)
     s["sales_total"] = sum(r["total"] for r in sales)
     s["cash_sales"] = cash
     s["void_count"], s["void_total"] = voids[0], voids[1]
-    s["expected_cash"] = s["opening_cash"] + cash if s["closed_at"] is None else s["expected_cash"]
+    unpaid = c.execute("SELECT COUNT(*), COALESCE(SUM(total_amount),0) FROM open_bills WHERE shift_id=? AND status='open'",
+                       (s["id"],)).fetchone()
+    s["open_bills_count"], s["open_bills_total"] = unpaid[0], unpaid[1]
+    s["noncash_sales"] = noncash
+    if s["closed_at"] is None:
+        s["expected_cash"] = s["opening_cash"] + cash
+        s["expected_noncash"] = noncash
+    else:
+        s["expected_noncash"] = s["expected_noncash"] or noncash
     cashier = c.execute("SELECT name FROM users WHERE id=?", (s["user_id"],)).fetchone()
     s["cashier"] = cashier["name"] if cashier else ""
     return s
@@ -1592,6 +2448,7 @@ def r_shift_open(req):
 @route("POST", r"/api/shifts/close")
 def r_shift_close(req):
     counted = to_int(req.data.get("counted_cash"), "Uang di laci", 0, 1_000_000_000)
+    raw_nc = req.data.get("counted_noncash")
     note = str(req.data.get("note", "")).strip()[:240]
     with db(write=True) as c:
         sh = open_shift_of(c, req.user["id"])
@@ -1599,9 +2456,14 @@ def r_shift_close(req):
             raise ApiError(409, "Tidak ada kasir yang sedang terbuka.")
         rep = shift_report(c, sh)
         diff = counted - rep["expected_cash"]
-        c.execute("UPDATE shifts SET closed_at=?,counted_cash=?,expected_cash=?,difference=?,note=? WHERE id=?",
-                  (now(), counted, rep["expected_cash"], diff, note, sh["id"]))
-        audit(c, req.user, "tutup_kasir", f"seharusnya Rp{rep['expected_cash']}, dihitung Rp{counted}, selisih {diff}")
+        counted_nc = rep["expected_noncash"] if raw_nc in (None, "") else to_int(raw_nc, "QRIS/transfer diterima", 0, 1_000_000_000)
+        diff_nc = counted_nc - rep["expected_noncash"]
+        c.execute("""UPDATE shifts SET closed_at=?,counted_cash=?,expected_cash=?,difference=?,
+                     expected_noncash=?,counted_noncash=?,difference_noncash=?,note=? WHERE id=?""",
+                  (now(), counted, rep["expected_cash"], diff, rep["expected_noncash"], counted_nc, diff_nc, note, sh["id"]))
+        audit(c, req.user, "tutup_kasir",
+              f"tunai seharusnya Rp{rep['expected_cash']}, dihitung Rp{counted}, selisih {diff}; "
+              f"non-tunai seharusnya Rp{rep['expected_noncash']}, dihitung Rp{counted_nc}, selisih {diff_nc}")
         return {"shift": shift_report(c, c.execute("SELECT * FROM shifts WHERE id=?", (sh["id"],)).fetchone())}
 
 
@@ -1670,6 +2532,8 @@ def r_summary(req):
         void = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total_amount),0) total FROM sales WHERE business_date=? AND status='void'", (today,)).fetchone()
         qr = c.execute("SELECT COUNT(*) FROM sales WHERE business_date=? AND status!='void' AND order_ids!=''", (today,)).fetchone()[0]
         open_orders = c.execute("SELECT COUNT(*) n, COALESCE(SUM(subtotal),0) total FROM orders WHERE status IN ('accepted','ready','served')").fetchone()
+        bills_open = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total_amount),0) total FROM open_bills WHERE status='open'").fetchone()
+        bills_kind = rows(c, "SELECT kind, COUNT(*) n, COALESCE(SUM(total_amount),0) total FROM open_bills WHERE status='open' GROUP BY kind")
         pending_orders = c.execute("SELECT COUNT(*) FROM orders WHERE status='pending'").fetchone()[0]
         cust = c.execute("""SELECT COUNT(*) active, SUM(first_d>=?) fresh FROM (
                               SELECT lower(customer_name) k, MIN(business_date) first_d FROM sales WHERE customer_name!='' AND status!='void'
@@ -1696,6 +2560,7 @@ def r_summary(req):
             "categories_month": cats, "top_today": top_today, "top_week": top_week,
             "void_today": {"n": void["n"], "total": void["total"]}, "qr_sales_today": qr,
             "open_orders": {"n": open_orders["n"], "total": open_orders["total"]}, "pending_orders": pending_orders,
+            "open_bills": {"n": bills_open["n"], "total": bills_open["total"], "by_kind": bills_kind},
             "customers": {"active_month": cust["active"] or 0, "new_month": cust["fresh"] or 0, "known": registered},
             "low_stock": low, "open_shifts": open_shifts,
             "menus": stats["menus"] or 0, "untracked": stats["untracked"] or 0, "tracked": stats["tracked"] or 0,
@@ -2304,7 +3169,7 @@ def r_call_done(req):
 # --------------------------------------------------------------------------- HTTP
 SECURITY_HEADERS = [
     ("X-Content-Type-Options", "nosniff"), ("X-Frame-Options", "DENY"), ("Referrer-Policy", "no-referrer"),
-    ("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    ("Content-Security-Policy", "default-src 'self'; connect-src 'self' http://localhost:9100; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
                                 "script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"),
 ]
 
@@ -2366,6 +3231,10 @@ class Handler(BaseHTTPRequestHandler):
         base = STATIC
         if path in ("/", "/index.html"):
             rel = "index.html"
+        elif path in ("/reservasi", "/reservasi/"):
+            rel = "reservasi.html"      # halaman reservasi meja + pre-order (tanpa login)
+        elif path in ("/r", "/r/", "/r/kopisawah"):
+            return self.send_bytes(302, b"", "text/plain; charset=utf-8", [("Location", "/reservasi")])
         elif re.fullmatch(r"/m/[A-Za-z0-9_-]{4,40}", path):
             rel = "order.html"          # halaman pesan lewat QR meja; kode meja dicek oleh API
         elif path == "/sw.js":
@@ -2454,12 +3323,15 @@ def main():
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     with db() as c:
         has_users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0] > 0
-    print(f"Kopi Sawah: http://127.0.0.1:{PORT}  (zona waktu {TZ_NAME})")
-    print(f"Database: {DB_PATH}")
+    print(f"Kopi Sawah: http://127.0.0.1:{PORT}  (zona waktu {TZ_NAME})", flush=True)
+    print(f"Database: {DB_PATH}", flush=True)
     if not has_users and not TANPA_LOGIN:
-        print(f"PENYIAPAN AWAL: buka aplikasi, lalu masukkan KODE PENYIAPAN: {SETUP_CODE}")
-    print("Port ini hanya untuk nginx/lokal. Jangan dibuka langsung ke internet.")
-    print(f"Cadangan otomatis harian: {BACKUP_DIR} (simpan {BACKUP_KEEP} terakhir, setelah jam {BACKUP_HOUR}:00)")
+        if SETUP_TANPA_KODE:
+            print("PENYIAPAN AWAL: kode penyiapan DIMATIKAN — buka aplikasi dan buat akun pemilik sekarang.", flush=True)
+        else:
+            print(f"PENYIAPAN AWAL: buka aplikasi, lalu masukkan KODE PENYIAPAN: {SETUP_CODE}", flush=True)
+    print("Port ini hanya untuk nginx/lokal. Jangan dibuka langsung ke internet.", flush=True)
+    print(f"Cadangan otomatis harian: {BACKUP_DIR} (simpan {BACKUP_KEEP} terakhir, setelah jam {BACKUP_HOUR}:00)", flush=True)
     threading.Thread(target=backup_loop, daemon=True).start()
     try:
         server.serve_forever()

@@ -14,6 +14,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -245,14 +246,55 @@ class ApiTest(unittest.TestCase):
         st, cur, _ = kasir.call("GET", "/api/shifts/current")
         sh = cur["shift"]
         cash_sales = sum(m["total"] for m in sh["by_method"] if m["payment_method"] == "tunai")
+        noncash = sum(m["total"] for m in sh["by_method"] if m["payment_method"] != "tunai")
         self.assertEqual(sh["expected_cash"], 100000 + cash_sales)
         self.assertEqual(cash_sales, 40000)
+        self.assertEqual(sh["expected_noncash"], noncash, "QRIS/transfer dihitung terpisah dari laci")
         self.assertEqual(len(kasir.call("GET", "/api/sales")[1]["items"]), 6)  # termasuk 1 transaksi batal
-        st, closed, _ = kasir.call("POST", "/api/shifts/close", {"counted_cash": 139000, "note": "kurang seribu"})
+        st, closed, _ = kasir.call("POST", "/api/shifts/close", {"counted_cash": 139000, "counted_noncash": noncash - 500, "note": "kurang seribu"})
         self.assertEqual(st, 200, closed)
         self.assertEqual((closed["shift"]["expected_cash"], closed["shift"]["difference"]), (140000, -1000))
+        self.assertEqual((closed["shift"]["counted_noncash"], closed["shift"]["difference_noncash"]), (noncash - 500, -500))
         item = [{"product_id": self.products(kasir)["Nasi Goreng Original"]["id"], "quantity": 1, "modifiers": []}]
         self.assertEqual(kasir.call("POST", "/api/sales", {"items": item, "payment_method": "qris"})[0], 409, "setelah tutup kasir tidak bisa jual")
+
+    def test_08b_kemasan_hanya_makanan(self):
+        owner = self.login("Digi", OWNER_PIN)
+        kasir = self.login("Sari", "2468")
+        st, cur, _ = kasir.call("GET", "/api/shifts/current")
+        if not cur.get("shift"):
+            self.assertEqual(kasir.call("POST", "/api/shifts/open", {"opening_cash": 0})[0], 201)
+        p = self.products(owner)
+        air, nasgor, teh = p["Air Es"], p["Nasi Goreng Original"], p["Es Teh"]
+        teh_mods = [{"id": "gula-1"}, {"id": "es-1"}, {"id": "ukuran-1"}]
+        # minuman saja -> tanpa biaya kemasan
+        st, b, _ = kasir.call("POST", "/api/sales", {"items": [{"product_id": teh["id"], "quantity": 2, "modifiers": teh_mods}],
+                                                     "payment_method": "qris", "order_type": "take_away"})
+        self.assertEqual(st, 201, b)
+        self.assertEqual(b["item"]["packing_fee"], 0, "minuman tidak dikenai biaya kemasan")
+        # add-on (air es) juga tanpa biaya kemasan
+        st, b, _ = kasir.call("POST", "/api/sales", {"items": [{"product_id": air["id"], "quantity": 1, "modifiers": []}],
+                                                     "payment_method": "qris", "order_type": "take_away"})
+        self.assertEqual(st, 201, b)
+        self.assertEqual(b["item"]["packing_fee"], 0, "add-on bukan makanan")
+        # makanan -> kena biaya kemasan
+        st, b, _ = kasir.call("POST", "/api/sales", {"items": [{"product_id": nasgor["id"], "quantity": 1, "modifiers": []}],
+                                                     "payment_method": "qris", "order_type": "take_away"})
+        self.assertEqual(st, 201, b)
+        self.assertEqual(b["item"]["packing_fee"], 1000)
+        # per item: hanya makanan yang dihitung
+        self.assertEqual(owner.call("PUT", "/api/settings", {"packing_fee_per": "item"})[0], 200)
+        st, b, _ = kasir.call("POST", "/api/sales", {"items": [{"product_id": nasgor["id"], "quantity": 2, "modifiers": []},
+                                                              {"product_id": teh["id"], "quantity": 3, "modifiers": teh_mods}],
+                                                     "payment_method": "qris", "order_type": "take_away"})
+        self.assertEqual(st, 201, b)
+        self.assertEqual(b["item"]["packing_fee"], 2000, "3 minuman tidak ikut dihitung")
+        owner.call("PUT", "/api/settings", {"packing_fee_per": "order"})
+        # makan di tempat tidak kena
+        st, b, _ = kasir.call("POST", "/api/sales", {"items": [{"product_id": nasgor["id"], "quantity": 1, "modifiers": []}],
+                                                     "payment_method": "qris", "order_type": "dine_in"})
+        self.assertEqual(st, 201, b)
+        self.assertEqual(b["item"]["packing_fee"], 0)
 
     def test_09_pin_throttle_dan_logout(self):
         self.login("Digi", OWNER_PIN).call("POST", "/api/users", {"name": "Budi", "role": "kasir", "pin": "1357"})
@@ -277,6 +319,7 @@ class ApiTest(unittest.TestCase):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/") as r:
             self.assertEqual(r.status, 200)
             self.assertIn("Content-Security-Policy", r.headers)
+            self.assertIn("connect-src 'self' http://localhost:9100", r.headers["Content-Security-Policy"])
         self.assertEqual(c.call("GET", "/static/../app.py", raw=True)[0], 404)
         self.assertEqual(c.call("GET", "/static/%2e%2e/app.py", raw=True)[0], 404)
 
@@ -592,6 +635,277 @@ class ApiTest(unittest.TestCase):
         # jejak audit mencatat perubahan status
         audit = owner.call("GET", "/api/audit?limit=50")[1]["items"]
         self.assertTrue(any("ubah_meja" in (a.get("action") or "") and "aktif=" in (a.get("detail") or "") for a in audit))
+
+
+    def test_23_metode_pemesanan_tagihan_dan_gabung(self):
+        """Buat Pesanan / Piutang / Gabungkan Pesanan: tagihan terbuka, satu nota saat lunas."""
+        owner = self.login("Digi", OWNER_PIN)
+        kasir = self.login("Sari", "2468")
+        owner.call("POST", "/api/shifts/open", {"opening_cash": 0})   # 409 bila kasir sudah dibuka
+        p = self.products(owner)
+        nasgor, esteh = p["Nasi Goreng Original"], p["Air Es"]   # Air Es: tanpa pilihan wajib
+        before = owner.call("GET", "/api/reports/summary")[1]["today_total"]
+
+        # 1. Buat Pesanan: tagihan terbuka, belum menjadi omzet
+        items1 = [{"product_id": nasgor["id"], "quantity": 1, "modifiers": []}]
+        st, b, _ = owner.call("POST", "/api/sales", {"items": items1, "order_method": "pesanan",
+                                                    "order_type": "dine_in", "table_no": "Meja Uji 7",
+                                                    "customer_name": "Bu Uji", "request_id": "uji-bill-0001"})
+        self.assertEqual(st, 201, b)
+        bill = b["bill"]
+        self.assertRegex(bill["id"], r"^TG\d{6}-\d{3}$")
+        self.assertEqual((bill["kind"], bill["status"], bill["total_amount"]), ("pesanan", "open", nasgor["price"]))
+        self.assertEqual(owner.call("GET", "/api/reports/summary")[1]["today_total"], before,
+                         "tagihan yang belum dibayar tidak boleh menambah omzet")
+        st, b2, _ = owner.call("POST", "/api/sales", {"items": items1, "order_method": "pesanan", "request_id": "uji-bill-0001"})
+        self.assertEqual((st, b2.get("duplicate")), (200, True), "kunci idempoten juga berlaku untuk tagihan")
+
+        # 2. Pelanggan pesan lagi -> digabung ke tagihan yang sama
+        st, b, _ = owner.call("POST", f"/api/bills/{bill['id']}/items",
+                              {"items": [{"product_id": esteh["id"], "quantity": 2, "modifiers": []}]})
+        self.assertEqual(st, 200, b)
+        merged = b["bill"]
+        self.assertEqual(len(merged["items"]), 2)
+        self.assertEqual(merged["subtotal"], nasgor["price"] + 2 * esteh["price"])
+        self.assertEqual((merged["total_amount"], merged["item_count"]), (merged["subtotal"], 3))
+
+        # 3. Lunas -> satu nota berisi semua pesanan yang digabung
+        st, b, _ = owner.call("POST", f"/api/bills/{bill['id']}/settle", {"payment_method": "qris"})
+        self.assertEqual(st, 200, b)
+        sale = b["item"]
+        self.assertEqual((sale["status"], sale["total_amount"], len(sale["items"])),
+                         ("paid", merged["total_amount"], 2))
+        self.assertEqual(owner.call("GET", "/api/reports/summary")[1]["today_total"], before + merged["total_amount"],
+                         "omzet dihitung saat tagihan dilunasi")
+        self.assertNotIn(bill["id"], [x["id"] for x in owner.call("GET", "/api/bills?status=open")[1]["items"]])
+        self.assertEqual(owner.call("POST", f"/api/bills/{bill['id']}/items",
+                                    {"items": [{"product_id": esteh["id"], "quantity": 1, "modifiers": []}]})[0], 409,
+                         "tagihan lunas tidak bisa digabung lagi")
+
+        # 4. Piutang: tercatat sebagai piutang, dilunasi belakangan
+        st, b, _ = owner.call("POST", "/api/sales", {"items": [{"product_id": esteh["id"], "quantity": 1, "modifiers": []}],
+                                                    "order_method": "piutang", "customer_name": "Pak Uji"})
+        self.assertEqual(st, 201, b)
+        piutang = b["bill"]
+        self.assertEqual((piutang["kind"], piutang["status"]), ("piutang", "open"))
+        self.assertIn(piutang["id"], [x["id"] for x in owner.call("GET", "/api/bills?kind=piutang")[1]["items"]])
+        st, b, _ = owner.call("POST", f"/api/bills/{piutang['id']}/settle",
+                              {"payment_method": "tunai", "amount_paid": piutang["total_amount"]})
+        self.assertEqual((st, b["item"]["payment_method"]), (200, "tunai"))
+
+        # 5. Batalkan tagihan: pemilik boleh, kasir ditolak
+        st, b, _ = owner.call("POST", "/api/sales", {"items": [{"product_id": esteh["id"], "quantity": 1, "modifiers": []}],
+                                                    "order_method": "pesanan"})
+        batal = b["bill"]
+        self.assertEqual(kasir.call("POST", f"/api/bills/{batal['id']}/void", {"reason": "salah input"})[0], 403)
+        st, b, _ = owner.call("POST", f"/api/bills/{batal['id']}/void", {"reason": "salah input"})
+        self.assertEqual((st, b["bill"]["status"]), (200, "void"))
+        self.assertNotIn(batal["id"], [x["id"] for x in owner.call("GET", "/api/bills?status=open")[1]["items"]])
+
+        # 6. Bayar langsung tetap seperti sebelumnya
+        st, b, _ = owner.call("POST", "/api/sales", {"items": [{"product_id": esteh["id"], "quantity": 1, "modifiers": []}],
+                                                    "payment_method": "qris"})
+        self.assertEqual((st, b["item"]["status"]), (201, "paid"))
+
+
+    def test_24_hapus_transaksi_hanya_pemilik(self):
+        """Pemilik bisa menghapus transaksi permanen; kasir tidak. Tagihan yang notanya dihapus kembali terbuka."""
+        owner = self.login("Digi", OWNER_PIN)
+        kasir = self.login("Sari", "2468")
+        owner.call("POST", "/api/shifts/open", {"opening_cash": 0})
+        air = self.products(owner)["Air Es"]
+        item = [{"product_id": air["id"], "quantity": 1, "modifiers": []}]
+        st, b, _ = owner.call("POST", "/api/sales", {"items": item, "payment_method": "qris", "request_id": "uji-hapus-0001"})
+        sale = b["item"]
+        before = owner.call("GET", "/api/reports/summary")[1]["today_total"]
+        self.assertEqual(kasir.call("DELETE", f"/api/sales/{sale['id']}", {"reason": "coba"})[0], 403, "kasir tidak boleh menghapus")
+        self.assertEqual(owner.call("DELETE", f"/api/sales/{sale['id']}", {})[0], 400, "alasan wajib")
+        st, b, _ = owner.call("DELETE", f"/api/sales/{sale['id']}", {"reason": "uji hapus"})
+        self.assertEqual(st, 200, b)
+        self.assertEqual(owner.call("GET", f"/api/sales/{sale['id']}")[0], 404)
+        self.assertEqual(owner.call("GET", "/api/reports/summary")[1]["today_total"], before - sale["total_amount"],
+                         "omzet berkurang setelah transaksi dihapus")
+        audit = owner.call("GET", "/api/audit?limit=50")[1]["items"]
+        self.assertTrue(any(a["action"] == "hapus_transaksi" and sale["id"] in a["detail"] for a in audit),
+                        "penghapusan tercatat di audit")
+        self.assertEqual(owner.call("DELETE", f"/api/sales/{sale['id']}", {"reason": "x"})[0], 404, "sudah tidak ada")
+
+        # nota hasil pelunasan dihapus -> tagihannya kembali terbuka
+        st, b, _ = owner.call("POST", "/api/sales", {"items": item, "order_method": "pesanan", "request_id": "uji-hapus-0002"})
+        bill = b["bill"]
+        st, b, _ = owner.call("POST", f"/api/bills/{bill['id']}/settle", {"payment_method": "qris"})
+        sale2 = b["item"]
+        self.assertEqual(owner.call("DELETE", f"/api/sales/{sale2['id']}", {"reason": "salah lunas"})[0], 200)
+        st, b, _ = owner.call("GET", f"/api/bills/{bill['id']}")
+        self.assertEqual((b["item"]["status"], b["item"]["sale_id"]), ("open", None))
+
+    def test_25_saran_menu_hanya_pemilik(self):
+        """Saran menu adalah draf pemilik: kasir tidak boleh, menu tak dikenal 404."""
+        owner = self.login("Digi", OWNER_PIN)
+        kasir = self.login("Sari", "2468")
+        p = self.products(owner)["Ayam Bakar"]
+        st, b, _ = owner.call("GET", f"/api/products/{p['id']}/saran")
+        self.assertEqual(st, 200, b)
+        self.assertIn("ada", b["item"], "endpoint harus menjawab walau belum ada draf")
+        self.assertEqual(kasir.call("GET", f"/api/products/{p['id']}/saran")[0], 403)
+        self.assertEqual(owner.call("GET", "/api/products/tidak-ada/saran")[0], 404)
+
+    def test_26_reservasi_meja_dan_preorder(self):
+        """Reservasi meja + pre-order: pelanggan mengajukan, kasir menyetujui/menawar jam/menolak."""
+        owner = self.login("Digi", OWNER_PIN)
+        kasir = self.login("Sari", "2468")
+        anon = Client(self.port)
+        owner.call("PUT", "/api/settings", {"reservasi_batas_jam": "23:59", "reservasi_wa": "08123456789"})   # uji tidak bergantung jam berjalan
+        before = owner.call("GET", "/api/reports/summary")[1]["today_total"]
+        st, info, _ = anon.call("GET", "/api/public/reservasi/info")
+        self.assertEqual(st, 200, info)
+        self.assertTrue(info["aktif"])
+        self.assertEqual(info["wa"], "628123456789", "nomor WA kasir dinormalkan ke 62…")
+        tanggal = info["tanggal_min"]
+        jam1 = info.get("jam_min_hari_ini") or info["jam"][2]      # jam pertama yang masih boleh hari ini
+        jam2 = info["jam"][3]
+        besok = (datetime.now(timezone(timedelta(hours=7))).date() + timedelta(days=1)).isoformat()
+        air = self.products(owner)["Air Es"]
+        body = {"name": "Bu Uji", "phone": "081234567890", "party_size": 4, "tanggal": tanggal, "jam": jam1,
+                "note": "meja dekat kolam", "request_id": "uji-resv-0001",
+                "items": [{"product_id": air["id"], "quantity": 2, "modifiers": []}]}
+        st, b, _ = anon.call("POST", "/api/public/reservasi", body)
+        self.assertEqual(st, 201, b)
+        r1 = b["item"]
+        self.assertRegex(r1["id"], r"^RSV-\d{6}-\d{3}$")
+        self.assertEqual((r1["status"], r1["total_estimate"]), ("baru", 2 * air["price"]))
+        st, b2, _ = anon.call("POST", "/api/public/reservasi", body)
+        self.assertEqual((st, b2.get("duplicate")), (200, True), "kunci idempoten berlaku")
+        st, d, _ = kasir.call("GET", f"/api/reservasi?tanggal={tanggal}")
+        self.assertEqual((st, d["baru"], len(d["items"])), (200, 1, 1))
+        st, b, _ = kasir.call("POST", f"/api/reservasi/{r1['id']}/setujui", {"table_label": "Meja 5"})
+        self.assertEqual((st, b["item"]["status"], b["item"]["table_label"]), (200, "disetujui", "Meja 5"))
+        st, b, _ = anon.call("GET", f"/api/public/reservasi/{r1['token']}")
+        self.assertEqual((st, b["item"]["status"]), (200, "disetujui"))
+        # tawar jam lain -> pelanggan menerima
+        st, b, _ = anon.call("POST", "/api/public/reservasi", {**body, "tanggal": besok, "jam": jam2, "request_id": "uji-resv-0002"})
+        r2 = b["item"]
+        st, b, _ = kasir.call("POST", f"/api/reservasi/{r2['id']}/setujui", {"jam": jam1, "reason": "jam itu penuh"})
+        self.assertEqual((st, b["item"]["status"], b["item"]["proposed_jam"]), (200, "ubah", jam1))
+        st, b, _ = anon.call("POST", f"/api/public/reservasi/{r2['token']}/jawab", {"terima": True})
+        self.assertEqual((st, b["item"]["status"], b["item"]["jam"]), (200, "disetujui", jam1))
+        # tolak
+        st, b, _ = anon.call("POST", "/api/public/reservasi", {**body, "request_id": "uji-resv-0003"})
+        r3 = b["item"]
+        st, b, _ = kasir.call("POST", f"/api/reservasi/{r3['id']}/tolak", {"reason": "penuh"})
+        self.assertEqual((st, b["item"]["status"]), (200, "ditolak"))
+        # tamu datang lalu selesai
+        self.assertEqual(kasir.call("POST", f"/api/reservasi/{r1['id']}/datang")[0], 200)
+        self.assertEqual(kasir.call("POST", f"/api/reservasi/{r1['id']}/selesai")[0], 200)
+        # jam di luar daftar ditolak
+        self.assertEqual(anon.call("POST", "/api/public/reservasi", {**body, "jam": "03:00", "request_id": "uji-resv-0004"})[0], 400)
+        # reservasi bukan penjualan: omzet tidak berubah
+        self.assertEqual(owner.call("GET", "/api/reports/summary")[1]["today_total"], before)
+
+    def test_27_edit_tagihan_terbuka(self):
+        """Tagihan belum dibayar bisa diedit; total, catatan, stok, dan audit harus ikut konsisten."""
+        owner = self.login("Digi", OWNER_PIN)
+        owner.call("POST", "/api/shifts/open", {"opening_cash": 0})
+        products = self.products(owner)
+        tea, water = products["Es Teh"], products["Air Es"]
+        owner.call("POST", "/api/stock/count", {"product_id": tea["id"], "counted_quantity": 10})
+        st, created, _ = owner.call("POST", "/api/sales", {
+            "items": [{"product_id": tea["id"], "quantity": 2, "modifiers": [{"id": "gula-1"}]},
+                      {"product_id": water["id"], "quantity": 1, "modifiers": []}],
+            "order_method": "pesanan", "note": "sebelum edit"})
+        self.assertEqual(st, 201, created)
+        bill = created["bill"]
+        tea_line, water_line = bill["items"]
+        st, edited, _ = owner.call("PUT", f"/api/bills/{bill['id']}/edit", {
+            "items": [{"id": tea_line["id"], "quantity": 4, "note": "Tanpa gula"},
+                      {"id": water_line["id"], "quantity": 0, "note": ""}],
+            "note": "Catatan pesanan diperbarui", "revision": bill["revision"]})
+        self.assertEqual(st, 200, edited)
+        current = edited["bill"]
+        self.assertEqual(len(current["items"]), 1, "quantity 0 menghapus baris item")
+        self.assertEqual((current["items"][0]["quantity"], current["items"][0]["note"]), (4, "Tanpa gula"))
+        self.assertEqual(current["note"], "Catatan pesanan diperbarui")
+        self.assertEqual((current["subtotal"], current["item_count"]), (4 * tea["price"], 4))
+        self.assertEqual(self.products(owner)["Es Teh"]["stock_on_hand"], 6)
+
+        st, _, _ = owner.call("PUT", f"/api/bills/{bill['id']}/edit", {
+            "items": [{"id": tea_line["id"], "quantity": 3, "note": "versi lama"}],
+            "revision": bill["revision"]})
+        self.assertEqual(st, 409, "edit dari layar lama tidak boleh menimpa perubahan terbaru")
+
+        # Kegagalan validasi stok tidak boleh mengubah pesanan atau stok.
+        st, _, _ = owner.call("PUT", f"/api/bills/{bill['id']}/edit", {
+            "items": [{"id": tea_line["id"], "quantity": 20, "note": ""}],
+            "note": "gagal", "revision": current["revision"]})
+        self.assertEqual(st, 409)
+        self.assertEqual(self.products(owner)["Es Teh"]["stock_on_hand"], 6)
+        self.assertEqual(owner.call("GET", f"/api/bills/{bill['id']}")[1]["item"]["items"][0]["quantity"], 4)
+
+        st, reduced, _ = owner.call("PUT", f"/api/bills/{bill['id']}/edit", {
+            "items": [{"id": tea_line["id"], "quantity": 1, "note": "Kurangi gula"}],
+            "note": "", "revision": current["revision"]})
+        self.assertEqual(st, 200, reduced)
+        self.assertEqual(self.products(owner)["Es Teh"]["stock_on_hand"], 9)
+        audit = owner.call("GET", "/api/audit?limit=50")[1]["items"]
+        self.assertTrue(any(a["action"] == "edit_tagihan" and bill["id"] in a["detail"] for a in audit))
+
+        st, _, _ = owner.call("POST", f"/api/bills/{bill['id']}/void", {"reason": "uji edit"})
+        self.assertEqual(st, 200)
+        self.assertEqual(self.products(owner)["Es Teh"]["stock_on_hand"], 10,
+                         "pembatalan mengembalikan stok bersih, bukan jumlah kotor gerakan")
+        self.assertEqual(owner.call("PUT", f"/api/bills/{bill['id']}/edit", {
+            "items": [{"id": tea_line["id"], "quantity": 1, "note": ""}],
+            "revision": reduced["bill"]["revision"]})[0], 409)
+
+        st, paid_created, _ = owner.call("POST", "/api/sales", {
+            "items": [{"product_id": water["id"], "quantity": 1, "modifiers": []}],
+            "order_method": "pesanan"})
+        self.assertEqual(st, 201, paid_created)
+        paid_bill = paid_created["bill"]
+        st, _, _ = owner.call("POST", f"/api/bills/{paid_bill['id']}/settle", {"payment_method": "qris"})
+        self.assertEqual(st, 200)
+        self.assertEqual(owner.call("PUT", f"/api/bills/{paid_bill['id']}/edit", {
+            "items": [{"id": paid_bill["items"][0]["id"], "quantity": 2, "note": ""}],
+            "revision": paid_bill["revision"]})[0], 409, "tagihan lunas tidak boleh diedit")
+
+
+class SetupTanpaKodeTest(unittest.TestCase):
+    """Penyiapan awal tanpa KODE PENYIAPAN (KOPI_SAWAH_SETUP_TANPA_KODE=1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.port = free_port()
+        env = {**os.environ, "KOPI_SAWAH_PORT": str(cls.port), "KOPI_SAWAH_DB": str(Path(cls.tmp.name) / "t.sqlite3"),
+               "KOPI_SAWAH_REQUIRE_ORIGIN": "1", "KOPI_SAWAH_SETUP_CODE": SETUP_CODE,
+               "KOPI_SAWAH_SETUP_TANPA_KODE": "1"}
+        cls.proc = subprocess.Popen([sys.executable, str(PROJECT / "app.py")], env=env,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        for _ in range(80):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{cls.port}/api/health", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.1)
+        else:
+            raise RuntimeError("server tidak naik")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.terminate()
+        cls.proc.wait(5)
+        cls.tmp.cleanup()
+
+    def test_setup_tanpa_kode(self):
+        c = Client(self.port)
+        st, b, _ = c.call("GET", "/api/auth/status")
+        self.assertEqual(st, 200)
+        self.assertTrue(b["setup_tanpa_kode"], "layar penyiapan harus tahu kode dimatikan")
+        st, b, _ = c.call("POST", "/api/auth/setup", {"name": "Pemilik", "pin": "482916"})
+        self.assertEqual(st, 201, b)
+        self.assertEqual(c.call("GET", "/api/products")[0], 200)
+        self.assertEqual(Client(self.port).call("POST", "/api/auth/setup", {"name": "Lain", "pin": "482916"})[0], 409,
+                         "setelah akun ada, pendaftaran pemilik ditutup")
 
 
 if __name__ == "__main__":

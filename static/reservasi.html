@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#363a10">
+<meta name="robots" content="noindex,nofollow">
+<title>Reservasi Meja — Kopi Sawah</title>
+<link rel="icon" href="/static/images/logo-badge.png">
+<link rel="stylesheet" href="/static/order.css">
+<style>
+  .wrap{max-width:640px;margin:0 auto;padding:14px 14px 100px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+  .card h2{margin:0 0 4px;font-size:20px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  label.lbl{display:block;font-weight:600;margin:10px 0 5px;font-size:14px}
+  .field{width:100%;border:1.5px solid #cfc9b3;background:#fff;border-radius:12px;min-height:46px;padding:9px 12px}
+  textarea.field{min-height:70px;resize:vertical}
+  .note{background:var(--primary-soft);border-radius:10px;padding:10px 12px;font-size:13.5px;color:#3a4a14;margin-top:10px}
+  .sec-title{font-weight:800;margin:18px 0 8px;font-size:16px}
+  .sum{display:flex;justify-content:space-between;padding:3px 0;color:var(--muted)}
+  .sum b{color:var(--ink)}
+  .big-code{font:800 26px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:1px;text-align:center;margin:8px 0}
+  .status-line{display:flex;gap:8px;align-items:center;margin:6px 0}
+  .items-mini{font-size:13.5px;color:var(--muted)}
+  .steps{display:flex;align-items:center;gap:6px;margin-bottom:14px}
+  .steps .stepi{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
+  .steps .stepi span{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#efece0;color:var(--muted);font-size:11.5px}
+  .steps .stepi.on{color:var(--primary)} .steps .stepi.on span{background:var(--primary);color:#fff}
+  .steps .stepi.done span{background:var(--ok);color:#fff}
+  .steps i{flex:1;height:2px;background:var(--line);min-width:10px}
+  .review{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:6px}
+  .review>div{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px dashed var(--line2)}
+  .review>div:last-child{border-bottom:0}
+  .review span{color:var(--muted);font-size:13.5px}
+  .review b{text-align:right}
+</style>
+</head>
+<body>
+<header class="top"><img src="/static/images/logo-badge.png" alt=""><div class="t"><b id="outlet">Kopi Sawah</b><span class="sub">Reservasi meja &amp; pre-order</span></div></header>
+<div class="wrap" id="app"><p class="boot">Memuat…</p></div>
+<script src="/static/reservasi.js"></script>
+</body>
+</html>
